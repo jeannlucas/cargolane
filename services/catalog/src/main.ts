@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import { Logger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { MicroserviceOptions, Transport } from "@nestjs/microservices";
 import { AppModule } from "./app.module";
@@ -21,4 +22,15 @@ async function bootstrap(): Promise<void> {
   await app.listen();
 }
 
-bootstrap();
+// Sem este .catch(), uma falha de boot (ex.: Postgres fora do ar, .proto
+// ausente) vira uma promise rejeitada sem handler: o Node imprime a rejeicao
+// com stack de node_modules e sai com codigo 1 de qualquer jeito, mas sem
+// mensagem clara nem controle sobre o exit code. Aqui logamos com o Logger do
+// Nest e encerramos explicitamente.
+bootstrap().catch((error: unknown) => {
+  new Logger("Bootstrap").error(
+    "failed to start catalog service",
+    error instanceof Error ? error.stack : String(error),
+  );
+  process.exit(1);
+});
