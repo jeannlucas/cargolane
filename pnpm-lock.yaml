@@ -47,6 +47,9 @@ importers:
       '@types/node':
         specifier: ^22.10.2
         version: 22.20.1
+      catalog:
+        specifier: workspace:*
+        version: link:../catalog
       jest:
         specifier: ^29.7.0
         version: 29.7.0(@types/node@22.20.1)(ts-node@10.9.2(@types/node@22.20.1)(typescript@5.9.3))

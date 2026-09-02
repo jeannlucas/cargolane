@@ -16,3 +16,15 @@ export class DuplicateQuoteError extends Error {
     this.name = "DuplicateQuoteError";
   }
 }
+
+// Aceitar uma carga sem antes ter cotado. Erro de precondicao (o pedido em
+// si e valido, falta o estado previo — uma cotacao submitted), nao de
+// argumento invalido: por isso o controller traduz para FAILED_PRECONDITION,
+// nao INVALID_ARGUMENT. Lancado antes de qualquer chamada ao catalog: sem
+// cotacao previa, o catalog nem precisa ser consultado.
+export class NoQuoteError extends Error {
+  constructor(readonly loadId: string, readonly carrierId: string) {
+    super(`carrier ${carrierId} has no submitted quote for load ${loadId}`);
+    this.name = "NoQuoteError";
+  }
+}

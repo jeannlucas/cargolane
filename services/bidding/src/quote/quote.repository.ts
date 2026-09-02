@@ -1,6 +1,6 @@
 import { DataSource, QueryFailedError } from "typeorm";
 import { DuplicateQuoteError } from "./quote.errors";
-import { QUOTE_LOAD_CARRIER_UNIQUE_CONSTRAINT, Quote } from "./quote.entity";
+import { QUOTE_LOAD_CARRIER_UNIQUE_CONSTRAINT, Quote, QuoteStatus } from "./quote.entity";
 
 export interface SubmitQuoteInput {
   loadId: string;
@@ -47,6 +47,46 @@ export class QuoteRepository {
       }
       throw e;
     }
+  }
+
+  // So confirma existencia de cotacao SUBMITTED da transportadora: uma
+  // cotacao ja WON ou LOST (aceitacao repetida, corrida ja decidida) nao
+  // conta como "tem cotacao para aceitar".
+  async findSubmittedQuote(loadId: string, carrierId: string): Promise<Quote | null> {
+    return this.ds.getRepository(Quote).findOneBy({
+      loadId, carrierId, status: QuoteStatus.SUBMITTED,
+    });
+  }
+
+  // Isolado num metodo proprio (em vez de inline em QuoteService.accept)
+  // porque o Plano 3 troca esta chamada direta por um handler do evento
+  // LoadReserved: a regra de "quem ganhou vira won, o resto vira lost" nao
+  // pode ficar espalhada entre o orquestrador de hoje e o handler de evento
+  // de amanha. So chamado depois que o catalog decidiu a disputa (nunca
+  // antes) — este metodo em si nao decide nada, so registra uma decisao ja
+  // tomada.
+  //
+  // As duas atualizacoes rodam na mesma transacao: sem isso, uma falha entre
+  // marcar o vencedor e marcar os perdedores deixaria a carga com o vencedor
+  // won mas os perdedores ainda submitted, um estado que nenhum caminho do
+  // dominio deveria produzir.
+  async markLosers(loadId: string, winnerCarrierId: string): Promise<number> {
+    return this.ds.transaction(async (manager) => {
+      await manager.getRepository(Quote).update(
+        { loadId, carrierId: winnerCarrierId, status: QuoteStatus.SUBMITTED },
+        { status: QuoteStatus.WON },
+      );
+      const result = await manager
+        .createQueryBuilder()
+        .update(Quote)
+        .set({ status: QuoteStatus.LOST })
+        .where(
+          "load_id = :loadId AND carrier_id != :winnerCarrierId AND status = :submitted",
+          { loadId, winnerCarrierId, submitted: QuoteStatus.SUBMITTED },
+        )
+        .execute();
+      return result.affected ?? 0;
+    });
   }
 
   async listByLoad(loadId: string): Promise<Quote[]> {

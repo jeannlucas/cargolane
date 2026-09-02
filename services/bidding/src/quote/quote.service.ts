@@ -1,11 +1,20 @@
 import { Injectable } from "@nestjs/common";
-import { InvalidQuoteError } from "./quote.errors";
-import { Quote } from "./quote.entity";
+import { CatalogClient } from "./catalog.client";
+import { NoQuoteError, InvalidQuoteError } from "./quote.errors";
+import { Quote, QuoteStatus } from "./quote.entity";
 import { QuoteRepository, SubmitQuoteInput } from "./quote.repository";
+
+export interface AcceptLoadResult {
+  winningQuote: Quote;
+  losingQuotes: number;
+}
 
 @Injectable()
 export class QuoteService {
-  constructor(private readonly quotes: QuoteRepository) {}
+  constructor(
+    private readonly quotes: QuoteRepository,
+    private readonly catalog: CatalogClient,
+  ) {}
 
   // Valida a invariante de dominio antes de tocar o banco: uma checagem
   // depois do INSERT nao protege nada, so classifica o dado invalido ja
@@ -17,6 +26,34 @@ export class QuoteService {
 
   listByLoad(loadId: string): Promise<Quote[]> {
     return this.quotes.listByLoad(loadId);
+  }
+
+  // Ordem obrigatoria: (1) confirmar cotacao submitted da transportadora,
+  // sem tocar o catalog quando ela nao existe — evita gastar uma chamada de
+  // rede (e, pior, decidir uma disputa no catalog) para um pedido que ja
+  // deveria falhar aqui; (2) chamar catalog.reserveLoad, que resolve a
+  // disputa; (3) so se a reserva vencer, marcar vencedora e perdedoras. Se o
+  // catalog recusar (FAILED_PRECONDITION: carga ja reservada; NOT_FOUND:
+  // carga inexistente), o erro sobe sem tradução nem captura — e o mesmo
+  // grpc.ServiceError que o catalog devolveu, com o mesmo `code`. Mascarar
+  // esse erro (ex.: convertendo tudo para um erro generico do bidding)
+  // esconderia de quem perdeu a corrida que ele perdeu, e faria o controller
+  // reportar um status diferente do que o catalog decidiu.
+  async accept(
+    loadId: string,
+    carrierId: string,
+    idempotencyKey: string,
+  ): Promise<AcceptLoadResult> {
+    const quote = await this.quotes.findSubmittedQuote(loadId, carrierId);
+    if (!quote) {
+      throw new NoQuoteError(loadId, carrierId);
+    }
+
+    await this.catalog.reserveLoad({ loadId, carrierId, idempotencyKey });
+
+    const losingQuotes = await this.quotes.markLosers(loadId, carrierId);
+    quote.status = QuoteStatus.WON;
+    return { winningQuote: quote, losingQuotes };
   }
 
   // Toda comparacao com NaN retorna false em JavaScript: `priceCents <= 0`

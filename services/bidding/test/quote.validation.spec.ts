@@ -1,4 +1,5 @@
 import { DataSource } from "typeorm";
+import { CatalogClient } from "../src/quote/catalog.client";
 import { Quote } from "../src/quote/quote.entity";
 import { QuoteRepository } from "../src/quote/quote.repository";
 import { QuoteService } from "../src/quote/quote.service";
@@ -22,7 +23,11 @@ describe("QuoteService.submit valida invariantes", () => {
       type: "postgres", url: pg.url, entities: [Quote], synchronize: true,
     });
     await ds.initialize();
-    service = new QuoteService(new QuoteRepository(ds));
+    // Endereco fake: estes testes cobrem so a validacao de invariante de
+    // QuoteService.submit, que nunca chama o catalog. Nenhuma conexao gRPC
+    // real e aberta so por construir o cliente (grpc-js conecta sob demanda,
+    // na primeira chamada).
+    service = new QuoteService(new QuoteRepository(ds), new CatalogClient("127.0.0.1:0"));
   }, 60_000);
 
   afterAll(async () => {

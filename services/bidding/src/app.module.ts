@@ -1,5 +1,6 @@
 import { Module, OnModuleDestroy } from "@nestjs/common";
 import { DataSource } from "typeorm";
+import { CatalogClient } from "./quote/catalog.client";
 import { Quote } from "./quote/quote.entity";
 import { QuoteController } from "./quote/quote.controller";
 import { QuoteRepository } from "./quote/quote.repository";
@@ -30,13 +31,25 @@ import { QuoteService } from "./quote/quote.service";
       useFactory: (dataSource: DataSource) => new QuoteRepository(dataSource),
       inject: [DataSource],
     },
+    {
+      provide: CatalogClient,
+      // CATALOG_GRPC_URL: mesma variavel que o catalog usa para decidir onde
+      // escutar (ver services/catalog/src/main.ts) — aqui o bidding a le
+      // para saber onde discar. Default 127.0.0.1:50051 casa com o default
+      // de escuta do catalog em producao/desenvolvimento local.
+      useFactory: () => new CatalogClient(process.env.CATALOG_GRPC_URL ?? "127.0.0.1:50051"),
+    },
     QuoteService,
   ],
 })
 export class AppModule implements OnModuleDestroy {
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly catalogClient: CatalogClient,
+  ) {}
 
   async onModuleDestroy(): Promise<void> {
+    this.catalogClient.close();
     if (this.dataSource.isInitialized) {
       await this.dataSource.destroy();
     }

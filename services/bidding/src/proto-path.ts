@@ -16,22 +16,31 @@ import * as path from "node:path";
 // dois pontos de partida ficam exatamente um nivel dentro de services/bidding,
 // entao subir a arvore a partir de __dirname ate achar um "proto/bidding.proto"
 // funciona para ambos sem depender de qual dos dois esta rodando.
-function findBiddingProto(startDir: string): string {
+function findProto(fileName: string, startDir: string): string {
   let dir = startDir;
   for (;;) {
-    const candidate = path.join(dir, "proto", "bidding.proto");
+    const candidate = path.join(dir, "proto", fileName);
     if (fs.existsSync(candidate)) {
       return candidate;
     }
     const parent = path.dirname(dir);
     if (parent === dir) {
       throw new Error(
-        `bidding.proto not found: walked up from "${startDir}" to the ` +
-          "filesystem root without finding a proto/bidding.proto directory",
+        `${fileName} not found: walked up from "${startDir}" to the ` +
+          `filesystem root without finding a proto/${fileName} directory`,
       );
     }
     dir = parent;
   }
 }
 
-export const BIDDING_PROTO_PATH = findBiddingProto(__dirname);
+export const BIDDING_PROTO_PATH = findProto("bidding.proto", __dirname);
+
+// catalog.proto mora no mesmo diretorio "proto" na raiz do monorepo (veja
+// findProto acima), entao a mesma busca ascendente encontra os dois arquivos
+// a partir de __dirname do bidding. Resolvido aqui, e nao importado do
+// pacote catalog, porque "catalog" e devDependency do bidding (so para
+// subir o catalog de verdade em teste): o cliente gRPC de producao
+// (catalog.client.ts) nao pode depender de um pacote que nao existe no
+// deploy do bidding.
+export const CATALOG_PROTO_PATH = findProto("catalog.proto", __dirname);
