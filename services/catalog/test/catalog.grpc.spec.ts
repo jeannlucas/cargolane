@@ -68,4 +68,12 @@ describe("CatalogService gRPC", () => {
       id: "00000000-0000-0000-0000-000000000000",
     })).rejects.toMatchObject({ code: status.NOT_FOUND });
   });
+
+  it("reservar load_id inexistente devolve NOT_FOUND, distinto de carga ja reservada", async () => {
+    await expect(client.reserveLoad({
+      load_id: "00000000-0000-0000-0000-000000000000",
+      carrier_id: "carrier-a",
+      idempotency_key: "k1",
+    })).rejects.toMatchObject({ code: status.NOT_FOUND });
+  });
 });

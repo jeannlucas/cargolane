@@ -42,6 +42,17 @@ export class LoadRepository {
       .execute();
 
     if (!result.affected) {
+      // O UPDATE condicional acima nao distingue "loadId nao existe" de
+      // "existe mas nao esta open": os dois casos afetam zero linhas. Esta
+      // consulta extra so roda no caminho de falha (raro, comparado ao
+      // caminho feliz de uma reserva bem-sucedida), entao nao custa nada em
+      // termos de desempenho, e nao abre janela de corrida relevante: a
+      // disputa ja foi decidida pelo UPDATE, aqui so classificamos por que
+      // ele nao afetou nenhuma linha.
+      const existing = await this.ds.getRepository(Load).findOneBy({ id: loadId });
+      if (!existing) {
+        throw new LoadNotFoundError(loadId);
+      }
       throw new LoadNotOpenError(loadId);
     }
     // Releitura em vez de `.returning("*")`: o returning entrega as colunas

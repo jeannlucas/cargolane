@@ -1,7 +1,7 @@
 import { DataSource } from "typeorm";
 import { Load, LoadStatus } from "../src/load/load.entity";
 import { LoadRepository } from "../src/load/load.repository";
-import { LoadNotOpenError } from "../src/load/load.errors";
+import { LoadNotFoundError, LoadNotOpenError } from "../src/load/load.errors";
 import { startPostgres } from "./helpers/pg";
 
 describe("ReserveLoad sob concorrencia", () => {
@@ -82,5 +82,12 @@ describe("ReserveLoad sob concorrencia", () => {
 
     const stored = await ds.getRepository(Load).findOneByOrFail({ id: load.id });
     expect(stored.carrierId).toBe("carrier-a");
+  });
+
+  it("reservar loadId inexistente falha com LoadNotFoundError", async () => {
+    const nonExistentId = "00000000-0000-0000-0000-000000000000";
+
+    await expect(repo.reserve(nonExistentId, "carrier-a"))
+      .rejects.toBeInstanceOf(LoadNotFoundError);
   });
 });
