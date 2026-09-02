@@ -1,18 +1,18 @@
-// Demonstracao interativa do catalog contra um servidor gRPC ja em execucao.
+// Interactive walkthrough of the catalog service against a running gRPC server.
 //
-// Existe porque gRPC nao se testa com curl nem com navegador: sem um cliente
-// que fale o protocolo, a unica forma de exercitar a API seria a suite de
-// testes. Este script da a qualquer pessoa que clone o repositorio uma maneira
-// de VER a disputa acontecer, que e o mecanismo central do projeto.
+// It exists because gRPC cannot be exercised with curl or a browser: without a
+// client that speaks the protocol, the only way to drive the API would be the
+// test suite. This script gives anyone who clones the repository a way to WATCH
+// the race happen, which is the central mechanism of the project.
 //
-// Nao substitui os testes: nada aqui e assercao, e a saida e para leitura
-// humana. Rode `pnpm --filter catalog test` para as garantias.
+// It does not replace the tests: nothing here asserts anything, and the output
+// is for humans to read. Run `pnpm --filter catalog test` for the guarantees.
 //
 // Uso:
 //   1. docker compose up -d
 //   2. pnpm --filter catalog build
 //   3. DATABASE_URL=... node services/catalog/dist/main.js
-//   4. pnpm --filter catalog demo        (noutro terminal)
+//   4. pnpm --filter catalog demo        (in another terminal)
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import { CATALOG_PROTO_PATH } from "../src/proto-path";
@@ -47,9 +47,9 @@ interface Catalog {
   >;
 }
 
-// keepCase mantem os nomes snake_case do .proto em vez de camelizar, para que
-// o payload no codigo seja identico ao do contrato. O servidor usa a mesma
-// opcao; divergir aqui produziria campos silenciosamente vazios.
+// keepCase keeps the snake_case names from the .proto instead of camelizing, so
+// the payload in code matches the contract exactly. The server uses the same
+// option; diverging here would silently produce empty fields.
 function connect(): { catalog: Catalog; close: () => void } {
   const pkg = grpc.loadPackageDefinition(
     protoLoader.loadSync(CATALOG_PROTO_PATH, {
@@ -99,16 +99,16 @@ function section(title: string): void {
 
 function codeName(err: unknown): string {
   const code = (err as grpc.ServiceError | undefined)?.code;
-  return code === undefined ? "sem codigo" : `${grpc.status[code]} (${code})`;
+  return code === undefined ? "no code" : `${grpc.status[code]} (${code})`;
 }
 
 async function main(): Promise<void> {
   const { catalog, close } = connect();
-  console.log(`cargolane demo — conectando em ${ADDRESS}`);
+  console.log(`cargolane demo — connecting to ${ADDRESS}`);
 
   const route = { origin: "Maringa/PR", destination: "Curitiba/PR" };
 
-  section("1. Publicar uma carga");
+  section("1. Publish a load");
   const load = await catalog.publishLoad({
     shipper_id: "shipper-demo",
     ...route,
@@ -116,17 +116,17 @@ async function main(): Promise<void> {
     pickup_window_end: new Date(Date.now() + 86_400_000).toISOString(),
     price_ceiling_cents: 350_000,
   });
-  console.log(`id      ${load.id}`);
-  console.log(`rota    ${load.origin} -> ${load.destination}`);
-  console.log(`status  ${load.status}`);
-  console.log(`carrier ${load.carrier_id === "" ? "(nenhum)" : load.carrier_id}`);
+  console.log(`id       ${load.id}`);
+  console.log(`route    ${load.origin} -> ${load.destination}`);
+  console.log(`status   ${load.status}`);
+  console.log(`carrier  ${load.carrier_id === "" ? "(none)" : load.carrier_id}`);
 
-  section("2. A carga aparece entre as abertas da rota");
+  section("2. The load shows up among the open ones on that route");
   const before = await catalog.listLoads({ ...route, limit: 100 });
-  console.log(`${before.loads.length} carga(s) aberta(s) nesta rota`);
-  console.log(`a nossa esta na lista: ${before.loads.some((l) => l.id === load.id)}`);
+  console.log(`${before.loads.length} open load(s) on this route`);
+  console.log(`ours is listed: ${before.loads.some((l) => l.id === load.id)}`);
 
-  section(`3. ${CARRIERS} transportadoras aceitam a MESMA carga ao mesmo tempo`);
+  section(`3. ${CARRIERS} carriers accept the SAME load at the same time`);
   const started = Date.now();
   const results = await Promise.allSettled(
     Array.from({ length: CARRIERS }, (_, i) =>
@@ -147,37 +147,37 @@ async function main(): Promise<void> {
     codes.set(name, (codes.get(name) ?? 0) + 1);
   }
 
-  console.log(`disparadas   ${CARRIERS} em ${elapsed}ms`);
-  console.log(`venceram     ${winners.length}`);
-  console.log(`perderam     ${losers.length}`);
+  console.log(`fired    ${CARRIERS} in ${elapsed}ms`);
+  console.log(`won      ${winners.length}`);
+  console.log(`lost     ${losers.length}`);
   for (const [name, count] of codes) {
     console.log(`  ${count} x ${name}`);
   }
   if (winners.length === 1) {
     const won = (winners[0] as PromiseFulfilledResult<LoadMessage>).value;
-    console.log(`\nvencedora    ${won.carrier_id}`);
-    console.log(`status       ${won.status}`);
+    console.log(`\nwinner   ${won.carrier_id}`);
+    console.log(`status   ${won.status}`);
   }
 
-  section("4. O banco concorda: uma transportadora, um estado");
+  section("4. The database agrees: one carrier, one state");
   const after = await catalog.getLoad({ id: load.id });
-  console.log(`status  ${after.status}`);
-  console.log(`carrier ${after.carrier_id}`);
+  console.log(`status   ${after.status}`);
+  console.log(`carrier  ${after.carrier_id}`);
 
-  section("5. A carga sai da listagem de abertas");
+  section("5. The load leaves the open listing");
   const remaining = await catalog.listLoads({ ...route, limit: 100 });
-  console.log(`ainda na lista: ${remaining.loads.some((l) => l.id === load.id)}`);
+  console.log(`still listed: ${remaining.loads.some((l) => l.id === load.id)}`);
 
-  section("6. Erros distintos para causas distintas");
+  section("6. Distinct errors for distinct causes");
   try {
     await catalog.reserveLoad({
       load_id: load.id,
       carrier_id: "carrier-atrasada",
       idempotency_key: "demo-late",
     });
-    console.log("carga ja reservada: aceitou (INESPERADO)");
+    console.log("already reserved: accepted (UNEXPECTED)");
   } catch (err) {
-    console.log(`carga ja reservada   ${codeName(err)}`);
+    console.log(`already reserved   ${codeName(err)}`);
   }
   try {
     await catalog.reserveLoad({
@@ -185,23 +185,23 @@ async function main(): Promise<void> {
       carrier_id: "carrier-fantasma",
       idempotency_key: "demo-ghost",
     });
-    console.log("carga inexistente: aceitou (INESPERADO)");
+    console.log("nonexistent load: accepted (UNEXPECTED)");
   } catch (err) {
-    console.log(`carga inexistente    ${codeName(err)}`);
+    console.log(`nonexistent load   ${codeName(err)}`);
   }
 
   console.log(
-    "\nA disputa e decidida por um UPDATE condicional em transacao local.\n" +
-      "Sem lock distribuido, sem Redis: o proprio Postgres serializa o acesso\n" +
-      "a linha, e quem chega depois reavalia o predicado e perde.\n",
+    "\nThe race is decided by a conditional UPDATE in a local transaction.\n" +
+      "No distributed lock, no Redis: Postgres itself serializes access to the\n" +
+      "row, and whoever arrives later re-evaluates the predicate and loses.\n",
   );
   close();
 }
 
 main().catch((err) => {
   console.error(
-    `\nfalhou: ${err instanceof Error ? err.message : String(err)}\n\n` +
-      `O servidor esta no ar em ${ADDRESS}?\n` +
+    `\nfailed: ${err instanceof Error ? err.message : String(err)}\n\n` +
+      `Is the server up at ${ADDRESS}?\n` +
       "  docker compose up -d\n" +
       "  pnpm --filter catalog build\n" +
       "  DATABASE_URL=postgres://cargolane:cargolane@localhost:5432/cargolane \\\n" +

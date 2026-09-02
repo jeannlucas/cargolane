@@ -86,13 +86,13 @@ Ele publica uma carga, dispara 50 transportadoras aceitando ao mesmo tempo,
 e imprime quem venceu e como as outras 49 foram rejeitadas:
 
 ```
-disparadas   50 em 38ms
-venceram     1
-perderam     49
+fired    50 in 49ms
+won      1
+lost     49
   49 x FAILED_PRECONDITION (9)
 
-vencedora    carrier-0
-status       reserved
+winner   carrier-0
+status   reserved
 ```
 
 Ajuste a escala com `DEMO_CARRIERS=200 pnpm --filter catalog demo`.
@@ -265,17 +265,16 @@ pnpm --filter catalog demo
 ```
 
 It publishes a load, fires 50 carriers accepting it at once, and prints who
-won and how the other 49 were rejected. Output is in Portuguese, matching
-the script:
+won and how the other 49 were rejected:
 
 ```
-disparadas   50 em 38ms      (fired    50 in 38ms)
-venceram     1               (won      1)
-perderam     49              (lost     49)
+fired    50 in 49ms
+won      1
+lost     49
   49 x FAILED_PRECONDITION (9)
 
-vencedora    carrier-0       (winner)
-status       reserved
+winner   carrier-0
+status   reserved
 ```
 
 Scale it with `DEMO_CARRIERS=200 pnpm --filter catalog demo`.
