@@ -67,6 +67,36 @@ pnpm --filter catalog test
     node services/catalog/dist/main.js
   ```
 
+### Seeing the race happen
+
+gRPC is not HTTP: you cannot exercise this API with `curl` or a browser.
+With the service running (see above), a demo script drives it end to end
+through a real gRPC client:
+
+```bash
+pnpm --filter catalog demo
+```
+
+It publishes a load, fires 50 carriers accepting it simultaneously, and
+prints who won and how the other 49 were rejected:
+
+```
+disparadas   50 em 38ms
+venceram     1
+perderam     49
+  49 x FAILED_PRECONDITION (9)
+
+vencedora    carrier-0
+status       reserved
+```
+
+Scale it with `DEMO_CARRIERS=200 pnpm --filter catalog demo`.
+
+**This script asserts nothing.** Its output is for humans to read; the
+guarantees live in the test suite. It exists so that someone evaluating
+this repository can watch the central mechanism work without reading
+Jest output, and it is excluded from the production build.
+
 ### Enabling the pre-push guard (optional, local convention)
 
 `.githooks/pre-push` refuses to push `main` while the local `dev` is ahead

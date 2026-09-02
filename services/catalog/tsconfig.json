@@ -1,7 +1,7 @@
 {
   // Config base: usada pelo Jest (ts-jest le este arquivo por padrao) e pelo
-  // "lint" (tsc --noEmit), por isso inclui "test" alem de "src". O build de
-  // producao usa tsconfig.build.json, que estende este arquivo mas restringe
+  // "lint" (tsc --noEmit), por isso inclui "test" e "scripts" alem de "src".
+  // O build de producao usa tsconfig.build.json, que estende este arquivo mas restringe
   // rootDir/include a "src" para o dist/ nao carregar specs nem
   // @testcontainers/postgresql (achado C-1/I-9).
   "compilerOptions": {
@@ -21,6 +21,6 @@
     "declaration": false,
     "sourceMap": true
   },
-  "include": ["src", "test"],
+  "include": ["src", "test", "scripts"],
   "exclude": ["node_modules", "dist"]
 }
