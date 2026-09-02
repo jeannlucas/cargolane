@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "test": "jest",
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "typeorm": "^0.3.20",
