@@ -1,0 +1,46 @@
+syntax = "proto3";
+package catalog;
+
+service CatalogService {
+  rpc PublishLoad (PublishLoadRequest) returns (Load);
+  rpc GetLoad (GetLoadRequest) returns (Load);
+  rpc ListLoads (ListLoadsRequest) returns (ListLoadsResponse);
+  rpc ReserveLoad (ReserveLoadRequest) returns (Load);
+}
+
+message Load {
+  string id = 1;
+  string shipper_id = 2;
+  string origin = 3;
+  string destination = 4;
+  int32 weight_kg = 5;
+  string pickup_window_end = 6;
+  int32 price_ceiling_cents = 7;
+  string status = 8;
+  string carrier_id = 9;
+}
+
+message PublishLoadRequest {
+  string shipper_id = 1;
+  string origin = 2;
+  string destination = 3;
+  int32 weight_kg = 4;
+  string pickup_window_end = 5;
+  int32 price_ceiling_cents = 6;
+}
+
+message GetLoadRequest { string id = 1; }
+
+message ListLoadsRequest {
+  string origin = 1;
+  string destination = 2;
+  int32 limit = 3;
+}
+
+message ListLoadsResponse { repeated Load loads = 1; }
+
+message ReserveLoadRequest {
+  string load_id = 1;
+  string carrier_id = 2;
+  string idempotency_key = 3;
+}

@@ -1,0 +1,10 @@
+{
+  "name": "cargolane",
+  "private": true,
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "pnpm -r test",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint"
+  }
+}
