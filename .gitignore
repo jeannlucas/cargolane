@@ -4,3 +4,7 @@ coverage/
 .env
 .env.*
 !.env.example
+
+# Artefatos internos de processo (spec, plano, pendencias): ficam na
+# maquina, nunca no repositorio publico.
+docs/superpowers/
