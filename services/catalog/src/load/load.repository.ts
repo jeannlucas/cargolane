@@ -98,4 +98,20 @@ export class LoadRepository {
     }
     return reserved;
   }
+
+  // O predicado `status = :open` e o que protege um frete ja combinado: sem
+  // ele, uma carga `reserved` com janela vencida expiraria junto, desfazendo
+  // uma reserva que embarcador e transportadora ja tinham fechado.
+  async expireOverdue(now: Date): Promise<number> {
+    const result = await this.ds
+      .createQueryBuilder()
+      .update(Load)
+      .set({ status: LoadStatus.EXPIRED })
+      .where("status = :open AND pickup_window_end < :now", {
+        open: LoadStatus.OPEN,
+        now,
+      })
+      .execute();
+    return result.affected ?? 0;
+  }
 }

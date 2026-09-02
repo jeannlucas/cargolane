@@ -1,11 +1,14 @@
 import { Module, OnModuleDestroy } from "@nestjs/common";
+import { ScheduleModule } from "@nestjs/schedule";
 import { DataSource } from "typeorm";
 import { Load } from "./load/load.entity";
 import { LoadController } from "./load/load.controller";
+import { LoadExpirationJob } from "./load/load.expiration.job";
 import { LoadRepository } from "./load/load.repository";
 import { LoadService } from "./load/load.service";
 
 @Module({
+  imports: [ScheduleModule.forRoot()],
   controllers: [LoadController],
   providers: [
     {
@@ -29,6 +32,7 @@ import { LoadService } from "./load/load.service";
       inject: [DataSource],
     },
     LoadService,
+    LoadExpirationJob,
   ],
 })
 export class AppModule implements OnModuleDestroy {
