@@ -92,6 +92,34 @@ describe("BiddingService gRPC", () => {
     expect(response.quotes[0].price_cents).toBeLessThanOrEqual(response.quotes[1].price_cents);
   });
 
+  it("ListQuotes desempata preco igual de forma deterministica entre chamadas", async () => {
+    // O Postgres nao garante ordem estavel entre linhas de mesmo
+    // price_cents: sem uma chave de desempate deterministica no ORDER BY
+    // (created_at, id), duas chamadas consecutivas da mesma consulta podem
+    // devolver a mesma carga em ordens diferentes. Chamar listQuotes duas
+    // vezes e comparar a ordem prova que o desempate e estavel, sem depender
+    // de conhecer o criterio exato (created_at ou id) usado internamente.
+    const loadId = `load-tie-${Math.random()}`;
+    await client.submitQuote({
+      load_id: loadId,
+      carrier_id: "carrier-tie-a",
+      price_cents: 80000,
+      eta_hours: 12,
+    });
+    await client.submitQuote({
+      load_id: loadId,
+      carrier_id: "carrier-tie-b",
+      price_cents: 80000,
+      eta_hours: 15,
+    });
+
+    const first = await client.listQuotes({ load_id: loadId });
+    const second = await client.listQuotes({ load_id: loadId });
+
+    expect(first.quotes).toHaveLength(2);
+    expect(first.quotes.map((q) => q.id)).toEqual(second.quotes.map((q) => q.id));
+  });
+
   it.each([
     ["price_cents zero", { price_cents: 0, eta_hours: 24 }],
     ["price_cents negativo", { price_cents: -100, eta_hours: 24 }],
