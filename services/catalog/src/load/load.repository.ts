@@ -2,8 +2,30 @@ import { DataSource } from "typeorm";
 import { Load, LoadStatus } from "./load.entity";
 import { LoadNotFoundError, LoadNotOpenError } from "./load.errors";
 
+export interface CreateLoadInput {
+  shipperId: string;
+  origin: string;
+  destination: string;
+  weightKg: number;
+  pickupWindowEnd: Date;
+  priceCeilingCents: number;
+}
+
 export class LoadRepository {
   constructor(private readonly ds: DataSource) {}
+
+  async create(input: CreateLoadInput): Promise<Load> {
+    const repo = this.ds.getRepository(Load);
+    return repo.save(repo.create(input));
+  }
+
+  async findById(loadId: string): Promise<Load> {
+    const found = await this.ds.getRepository(Load).findOneBy({ id: loadId });
+    if (!found) {
+      throw new LoadNotFoundError(loadId);
+    }
+    return found;
+  }
 
   // A disputa inteira e decidida por este UPDATE condicional. Uma transacao
   // afeta uma linha e ganha; as demais afetam zero. Sem lock distribuido:
