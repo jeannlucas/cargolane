@@ -48,15 +48,31 @@ export class LoadService {
     );
   }
 
+  // Toda comparacao com NaN retorna false em JavaScript: `NaN <= 0` e
+  // `-NaN <= 0` sao ambos false, entao um `weightKg <= 0` sozinho deixa NaN e
+  // Infinity passarem direto para o INSERT (onde o Postgres rejeita, mas com
+  // erro cru de coluna `int`, nao com invariante de dominio). Por isso cada
+  // campo numerico e checado com `Number.isFinite` antes de qualquer
+  // comparacao de valor, e a data e checada com `Number.isNaN(getTime())`
+  // antes de comparar com `Date.now()`.
   private validate(input: CreateLoadInput): void {
     if (input.shipperId.trim() === "") {
       throw new InvalidLoadError("shipperId", "must not be blank");
     }
+    if (!Number.isFinite(input.weightKg)) {
+      throw new InvalidLoadError("weightKg", "must be a finite number");
+    }
     if (input.weightKg <= 0) {
       throw new InvalidLoadError("weightKg", "must be greater than zero");
     }
+    if (!Number.isFinite(input.priceCeilingCents)) {
+      throw new InvalidLoadError("priceCeilingCents", "must be a finite number");
+    }
     if (input.priceCeilingCents <= 0) {
       throw new InvalidLoadError("priceCeilingCents", "must be greater than zero");
+    }
+    if (Number.isNaN(input.pickupWindowEnd.getTime())) {
+      throw new InvalidLoadError("pickupWindowEnd", "must be a valid date");
     }
     if (input.pickupWindowEnd.getTime() <= Date.now()) {
       throw new InvalidLoadError("pickupWindowEnd", "must be in the future");

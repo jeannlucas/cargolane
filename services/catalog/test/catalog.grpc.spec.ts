@@ -84,6 +84,24 @@ describe("CatalogService gRPC", () => {
     })).rejects.toMatchObject({ code: status.INVALID_ARGUMENT });
   });
 
+  it("publicar carga com pickup_window_end ilegivel devolve INVALID_ARGUMENT, nao UNKNOWN", async () => {
+    // pickup_window_end e string no .proto: "banana" e formalmente valido no
+    // fio, nenhuma validacao de forma no gateway pegaria isso. new Date(
+    // "banana").getTime() e NaN; sem a checagem de Number.isNaN em
+    // LoadService.validate, isso chegava cru no INSERT e o Postgres devolvia
+    // "invalid input syntax for type timestamp with time zone", que o Nest
+    // traduzia para UNKNOWN com "Internal server error" - erro opaco e
+    // vazamento de detalhe de infraestrutura.
+    await expect(client.publishLoad({
+      shipper_id: "shipper-1",
+      origin: "Maringa/PR",
+      destination: "Curitiba/PR",
+      weight_kg: 12000,
+      pickup_window_end: "banana",
+      price_ceiling_cents: 350000,
+    })).rejects.toMatchObject({ code: status.INVALID_ARGUMENT });
+  });
+
   it("reservar load_id inexistente devolve NOT_FOUND, distinto de carga ja reservada", async () => {
     await expect(client.reserveLoad({
       load_id: "00000000-0000-0000-0000-000000000000",
