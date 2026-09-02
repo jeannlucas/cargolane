@@ -73,6 +73,17 @@ describe("CatalogService gRPC", () => {
     })).rejects.toMatchObject({ code: status.NOT_FOUND });
   });
 
+  it("publicar carga com invariante invalida devolve INVALID_ARGUMENT, distinto de FAILED_PRECONDITION e NOT_FOUND", async () => {
+    await expect(client.publishLoad({
+      shipper_id: "shipper-1",
+      origin: "Maringa/PR",
+      destination: "Curitiba/PR",
+      weight_kg: 0,
+      pickup_window_end: "2026-09-30T12:00:00Z",
+      price_ceiling_cents: 350000,
+    })).rejects.toMatchObject({ code: status.INVALID_ARGUMENT });
+  });
+
   it("reservar load_id inexistente devolve NOT_FOUND, distinto de carga ja reservada", async () => {
     await expect(client.reserveLoad({
       load_id: "00000000-0000-0000-0000-000000000000",

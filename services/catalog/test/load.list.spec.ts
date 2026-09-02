@@ -1,6 +1,7 @@
 import { DataSource } from "typeorm";
 import { Load, LoadStatus } from "../src/load/load.entity";
 import { LoadRepository } from "../src/load/load.repository";
+import { LoadService } from "../src/load/load.service";
 import { startPostgres } from "./helpers/pg";
 import { makeSeed } from "./helpers/seed";
 
@@ -8,6 +9,7 @@ describe("LoadRepository.list", () => {
   let ds: DataSource;
   let stop: () => Promise<void>;
   let repo: LoadRepository;
+  let service: LoadService;
   let seed: ReturnType<typeof makeSeed>;
 
   beforeAll(async () => {
@@ -18,6 +20,7 @@ describe("LoadRepository.list", () => {
     });
     await ds.initialize();
     repo = new LoadRepository(ds);
+    service = new LoadService(repo);
     seed = makeSeed(ds);
   }, 60_000);
 
@@ -76,15 +79,20 @@ describe("LoadRepository.list", () => {
     expect(found).toHaveLength(alreadyOpen + 2);
   });
 
+  // Normalizar o limit e regra de negocio de LoadService.list, nao acesso a
+  // dados: LoadRepository.list hoje aplica o LIMIT recebido sem clamp (ver
+  // Task 1). Por isso os dois testes abaixo passam pelo service, nao pelo
+  // repositorio direto — testar o clamp contra repo.list estaria exercitando
+  // a camada errada.
   it("normaliza limit fora do intervalo [1, 100] e trunca fracoes", async () => {
     const origin = "Curitiba/PR";
     const destination = "Joinville/SC";
     await seed({ origin, destination });
     await seed({ origin, destination });
 
-    const zero = await repo.list({ origin, destination, limit: 0 });
-    const negative = await repo.list({ origin, destination, limit: -5 });
-    const fractional = await repo.list({ origin, destination, limit: 1.5 });
+    const zero = await service.list({ origin, destination, limit: 0 });
+    const negative = await service.list({ origin, destination, limit: -5 });
+    const fractional = await service.list({ origin, destination, limit: 1.5 });
 
     // limit: 0 cai no default de 20 -> as 2 cargas open da rota cabem inteiras.
     expect(zero).toHaveLength(2);
@@ -116,7 +124,7 @@ describe("LoadRepository.list", () => {
       ),
     );
 
-    const found = await repo.list({ origin, destination, limit: 500 });
+    const found = await service.list({ origin, destination, limit: 500 });
 
     // Sem o teto (Math.min(..., 100)), esta asserção falha: das 101 cargas
     // open semeadas acima, viriam todas as 101, nao 100.

@@ -11,3 +11,13 @@ export class LoadNotFoundError extends Error {
     this.name = "LoadNotFoundError";
   }
 }
+
+// Violacao de invariante de dominio (ex.: peso <= 0, janela de coleta no
+// passado). Validacao de forma (campo ausente, tipo errado) e
+// responsabilidade do gateway, nao do catalog.
+export class InvalidLoadError extends Error {
+  constructor(readonly field: string, readonly reason: string) {
+    super(`invalid load: ${field} ${reason}`);
+    this.name = "InvalidLoadError";
+  }
+}

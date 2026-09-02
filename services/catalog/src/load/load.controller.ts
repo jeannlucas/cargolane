@@ -1,7 +1,7 @@
 import { status } from "@grpc/grpc-js";
 import { Controller } from "@nestjs/common";
 import { GrpcMethod, RpcException } from "@nestjs/microservices";
-import { LoadNotFoundError, LoadNotOpenError } from "./load.errors";
+import { InvalidLoadError, LoadNotFoundError, LoadNotOpenError } from "./load.errors";
 import { LoadMessage, toLoadMessage } from "./load.mapper";
 import { LoadService } from "./load.service";
 
@@ -40,15 +40,22 @@ export class LoadController {
 
   @GrpcMethod("CatalogService", "PublishLoad")
   async publishLoad(req: PublishLoadRequest): Promise<LoadMessage> {
-    const load = await this.loads.publish({
-      shipperId: req.shipper_id,
-      origin: req.origin,
-      destination: req.destination,
-      weightKg: req.weight_kg,
-      pickupWindowEnd: new Date(req.pickup_window_end),
-      priceCeilingCents: req.price_ceiling_cents,
-    });
-    return toLoadMessage(load);
+    try {
+      const load = await this.loads.publish({
+        shipperId: req.shipper_id,
+        origin: req.origin,
+        destination: req.destination,
+        weightKg: req.weight_kg,
+        pickupWindowEnd: new Date(req.pickup_window_end),
+        priceCeilingCents: req.price_ceiling_cents,
+      });
+      return toLoadMessage(load);
+    } catch (e) {
+      if (e instanceof InvalidLoadError) {
+        throw new RpcException({ code: status.INVALID_ARGUMENT, message: e.message });
+      }
+      throw e;
+    }
   }
 
   @GrpcMethod("CatalogService", "GetLoad")
