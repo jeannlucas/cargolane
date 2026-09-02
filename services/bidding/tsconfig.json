@@ -1,0 +1,26 @@
+{
+  // Config base: usada pelo Jest (ts-jest le este arquivo por padrao) e pelo
+  // "lint" (tsc --noEmit), por isso inclui "test" e "scripts" alem de "src".
+  // O build de producao usa tsconfig.build.json, que estende este arquivo mas restringe
+  // rootDir/include a "src" para o dist/ nao carregar specs nem
+  // @testcontainers/postgresql (achado C-1/I-9, mesmo achado do catalog).
+  "compilerOptions": {
+    "target": "ES2021",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "lib": ["ES2021"],
+    "outDir": "dist",
+    "rootDir": ".",
+    "strict": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": false,
+    "sourceMap": true
+  },
+  "include": ["src", "test", "scripts"],
+  "exclude": ["node_modules", "dist"]
+}

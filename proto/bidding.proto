@@ -1,0 +1,38 @@
+syntax = "proto3";
+package bidding;
+
+service BiddingService {
+  rpc SubmitQuote (SubmitQuoteRequest) returns (Quote);
+  rpc ListQuotes (ListQuotesRequest) returns (ListQuotesResponse);
+  rpc AcceptLoad (AcceptLoadRequest) returns (AcceptLoadResponse);
+}
+
+message Quote {
+  string id = 1;
+  string load_id = 2;
+  string carrier_id = 3;
+  int32 price_cents = 4;
+  int32 eta_hours = 5;
+  string status = 6;
+}
+
+message SubmitQuoteRequest {
+  string load_id = 1;
+  string carrier_id = 2;
+  int32 price_cents = 3;
+  int32 eta_hours = 4;
+}
+
+message ListQuotesRequest { string load_id = 1; }
+message ListQuotesResponse { repeated Quote quotes = 1; }
+
+message AcceptLoadRequest {
+  string load_id = 1;
+  string carrier_id = 2;
+  string idempotency_key = 3;
+}
+
+message AcceptLoadResponse {
+  Quote winning_quote = 1;
+  int32 losing_quotes = 2;
+}
