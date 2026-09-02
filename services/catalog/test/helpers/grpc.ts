@@ -4,6 +4,7 @@ import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import { NestFactory } from "@nestjs/core";
 import { MicroserviceOptions, Transport } from "@nestjs/microservices";
+import { DataSource } from "typeorm";
 import { AppModule } from "../../src/app.module";
 import { CATALOG_PROTO_PATH } from "../../src/proto-path";
 import { startPostgres } from "./pg";
@@ -66,6 +67,9 @@ export interface CatalogGrpcClient {
 
 export interface TestCatalogServer {
   client: CatalogGrpcClient;
+  // Exposto para os testes verificarem estado direto no banco (ex.: contagem
+  // exata de cargas open) sem precisar inventar um RPC so para isso.
+  ds: DataSource;
   stop(): Promise<void>;
 }
 
@@ -100,6 +104,7 @@ export async function startCatalogGrpcServer(): Promise<TestCatalogServer> {
     },
   );
   await app.listen();
+  const ds = app.get(DataSource);
 
   const packageDefinition = protoLoader.loadSync(CATALOG_PROTO_PATH, {
     keepCase: true,
@@ -141,6 +146,7 @@ export async function startCatalogGrpcServer(): Promise<TestCatalogServer> {
 
   return {
     client,
+    ds,
     stop: async () => {
       rawClient.close();
       await app.close();

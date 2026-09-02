@@ -1,13 +1,17 @@
 import { status } from "@grpc/grpc-js";
+import { DataSource } from "typeorm";
+import { Load, LoadStatus } from "../src/load/load.entity";
 import { CatalogGrpcClient, startCatalogGrpcServer } from "./helpers/grpc";
 
 describe("CatalogService gRPC", () => {
   let client: CatalogGrpcClient;
+  let ds: DataSource;
   let stop: () => Promise<void>;
 
   beforeAll(async () => {
     const server = await startCatalogGrpcServer();
     client = server.client;
+    ds = server.ds;
     stop = server.stop;
   }, 60_000);
 
@@ -105,5 +109,50 @@ describe("CatalogService gRPC", () => {
     expect(response.loads).toHaveLength(1);
     expect(response.loads[0].id).toBe(open.id);
     expect(response.loads[0].status).toBe("open");
+  });
+
+  it("origin e destination vazios (o que o proto3 envia sem filtro) listam todas as cargas open", async () => {
+    // origin: "" e destination: "" sao literalmente o que o proto-loader
+    // poe no fio quando o cliente nao preenche esses campos de uma
+    // ListLoadsRequest (proto3 nao distingue "ausente" de "string vazia").
+    // Conta o que ja existia antes deste teste em vez de assumir uma base
+    // zerada: os testes deste describe compartilham o mesmo Postgres.
+    const alreadyOpen = await ds.getRepository(Load)
+      .countBy({ status: LoadStatus.OPEN });
+
+    const openA = await client.publishLoad({
+      shipper_id: "shipper-4",
+      origin: "Sem-Filtro-Grpc-A/PR",
+      destination: "Sem-Filtro-Grpc-B/PR",
+      weight_kg: 3000,
+      pickup_window_end: "2026-11-05T09:00:00Z",
+      price_ceiling_cents: 90000,
+    });
+    const toReserve = await client.publishLoad({
+      shipper_id: "shipper-4",
+      origin: "Sem-Filtro-Grpc-C/PR",
+      destination: "Sem-Filtro-Grpc-D/PR",
+      weight_kg: 3000,
+      pickup_window_end: "2026-11-05T09:00:00Z",
+      price_ceiling_cents: 90000,
+    });
+    await client.reserveLoad({
+      load_id: toReserve.id,
+      carrier_id: "carrier-sem-filtro",
+      idempotency_key: "k-sem-filtro",
+    });
+
+    const response = await client.listLoads({
+      origin: "", destination: "", limit: 1000,
+    });
+
+    // Se algum dia "origin || undefined" virar "origin !== undefined", este
+    // teste falha: origin/destination vazios passariam a filtrar por
+    // `origin = ''`, que nao bate com nenhuma rota real, e a lista viria
+    // vazia em vez de trazer todas as cargas open (incluindo openA, cuja
+    // rota nao e vazia).
+    expect(response.loads).toHaveLength(alreadyOpen + 1);
+    expect(response.loads.map((l) => l.id)).toContain(openA.id);
+    expect(response.loads.map((l) => l.id)).not.toContain(toReserve.id);
   });
 });

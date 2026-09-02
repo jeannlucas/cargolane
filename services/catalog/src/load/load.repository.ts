@@ -28,12 +28,16 @@ export class LoadRepository {
   // limit: 0 e o que o proto3 envia quando o cliente nao preenche o campo
   // int32 (default de proto3 e o zero-value). Cair no `|| 20` e intencional:
   // "sem limite informado" e "limite zero" sao indistinguiveis no fio, entao
-  // tratamos os dois como "usar o default".
+  // tratamos os dois como "usar o default". Math.floor garante inteiro: o
+  // TypeORM interpola o LIMIT direto no SQL (nao como parametro), e o
+  // Postgres aceita `LIMIT 1.5` sem erro, arredondando em silencio. Isso nao
+  // e alcancavel via gRPC (int32 nao carrega fracao no fio), mas `list` e
+  // assinatura publica chamavel por qualquer codigo TypeScript.
   async list(f: ListLoadsFilter): Promise<Load[]> {
     const qb = this.ds.createQueryBuilder(Load, "l")
       .where("l.status = :open", { open: LoadStatus.OPEN })
       .orderBy("l.created_at", "DESC")
-      .limit(Math.min(Math.max(f.limit || 20, 1), 100));
+      .limit(Math.floor(Math.min(Math.max(f.limit || 20, 1), 100)));
     if (f.origin) {
       qb.andWhere("l.origin = :origin", { origin: f.origin });
     }
