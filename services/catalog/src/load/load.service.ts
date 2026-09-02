@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { Load } from "./load.entity";
-import { CreateLoadInput, LoadRepository } from "./load.repository";
+import { CreateLoadInput, ListLoadsFilter, LoadRepository } from "./load.repository";
 
 @Injectable()
 export class LoadService {
@@ -12,6 +12,10 @@ export class LoadService {
 
   get(loadId: string): Promise<Load> {
     return this.loads.findById(loadId);
+  }
+
+  list(filter: ListLoadsFilter): Promise<Load[]> {
+    return this.loads.list(filter);
   }
 
   reserve(loadId: string, carrierId: string): Promise<Load> {

@@ -18,6 +18,16 @@ interface GetLoadRequest {
   id: string;
 }
 
+interface ListLoadsRequest {
+  origin: string;
+  destination: string;
+  limit: number;
+}
+
+interface ListLoadsResponse {
+  loads: LoadMessage[];
+}
+
 interface ReserveLoadRequest {
   load_id: string;
   carrier_id: string;
@@ -51,6 +61,16 @@ export class LoadController {
       }
       throw e;
     }
+  }
+
+  @GrpcMethod("CatalogService", "ListLoads")
+  async listLoads(req: ListLoadsRequest): Promise<ListLoadsResponse> {
+    const loads = await this.loads.list({
+      origin: req.origin || undefined,
+      destination: req.destination || undefined,
+      limit: req.limit,
+    });
+    return { loads: loads.map(toLoadMessage) };
   }
 
   @GrpcMethod("CatalogService", "ReserveLoad")

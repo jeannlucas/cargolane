@@ -52,6 +52,11 @@ export interface CatalogGrpcClient {
     price_ceiling_cents: number;
   }): Promise<LoadMessage>;
   getLoad(req: { id: string }): Promise<LoadMessage>;
+  listLoads(req: {
+    origin?: string;
+    destination?: string;
+    limit?: number;
+  }): Promise<{ loads: LoadMessage[] }>;
   reserveLoad(req: {
     load_id: string;
     carrier_id: string;
@@ -130,6 +135,7 @@ export async function startCatalogGrpcServer(): Promise<TestCatalogServer> {
   const client: CatalogGrpcClient = {
     publishLoad: promisify("PublishLoad"),
     getLoad: promisify("GetLoad"),
+    listLoads: promisify("ListLoads"),
     reserveLoad: promisify("ReserveLoad"),
   };
 

@@ -76,4 +76,34 @@ describe("CatalogService gRPC", () => {
       idempotency_key: "k1",
     })).rejects.toMatchObject({ code: status.NOT_FOUND });
   });
+
+  it("lista cargas open da rota pedida, sem a que foi reservada", async () => {
+    const origin = "Cascavel/PR";
+    const destination = "Foz do Iguacu/PR";
+    const open = await client.publishLoad({
+      shipper_id: "shipper-3",
+      origin,
+      destination,
+      weight_kg: 5000,
+      pickup_window_end: "2026-11-01T09:00:00Z",
+      price_ceiling_cents: 120000,
+    });
+    const toReserve = await client.publishLoad({
+      shipper_id: "shipper-3",
+      origin,
+      destination,
+      weight_kg: 5000,
+      pickup_window_end: "2026-11-01T09:00:00Z",
+      price_ceiling_cents: 120000,
+    });
+    await client.reserveLoad({
+      load_id: toReserve.id, carrier_id: "carrier-a", idempotency_key: "k3",
+    });
+
+    const response = await client.listLoads({ origin, destination, limit: 10 });
+
+    expect(response.loads).toHaveLength(1);
+    expect(response.loads[0].id).toBe(open.id);
+    expect(response.loads[0].status).toBe("open");
+  });
 });

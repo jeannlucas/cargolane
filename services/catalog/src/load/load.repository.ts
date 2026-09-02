@@ -11,12 +11,36 @@ export interface CreateLoadInput {
   priceCeilingCents: number;
 }
 
+export interface ListLoadsFilter {
+  origin?: string;
+  destination?: string;
+  limit: number;
+}
+
 export class LoadRepository {
   constructor(private readonly ds: DataSource) {}
 
   async create(input: CreateLoadInput): Promise<Load> {
     const repo = this.ds.getRepository(Load);
     return repo.save(repo.create(input));
+  }
+
+  // limit: 0 e o que o proto3 envia quando o cliente nao preenche o campo
+  // int32 (default de proto3 e o zero-value). Cair no `|| 20` e intencional:
+  // "sem limite informado" e "limite zero" sao indistinguiveis no fio, entao
+  // tratamos os dois como "usar o default".
+  async list(f: ListLoadsFilter): Promise<Load[]> {
+    const qb = this.ds.createQueryBuilder(Load, "l")
+      .where("l.status = :open", { open: LoadStatus.OPEN })
+      .orderBy("l.created_at", "DESC")
+      .limit(Math.min(Math.max(f.limit || 20, 1), 100));
+    if (f.origin) {
+      qb.andWhere("l.origin = :origin", { origin: f.origin });
+    }
+    if (f.destination) {
+      qb.andWhere("l.destination = :destination", { destination: f.destination });
+    }
+    return qb.getMany();
   }
 
   async findById(loadId: string): Promise<Load> {
