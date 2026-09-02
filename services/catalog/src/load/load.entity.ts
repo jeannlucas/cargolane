@@ -44,6 +44,10 @@ export class Load {
   @Column({ name: "carrier_id", type: "text", nullable: true })
   carrierId!: string | null;
 
+  // Incrementada pelo UPDATE de reserve(), mas nao e ela quem protege a
+  // reserva contra corrida: quem faz isso e o predicado `status = :open` no
+  // WHERE de LoadRepository.reserve. Nao confiar na versao como mecanismo de
+  // exclusividade.
   @VersionColumn()
   version!: number;
 
