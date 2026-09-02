@@ -92,32 +92,57 @@ describe("BiddingService gRPC", () => {
     expect(response.quotes[0].price_cents).toBeLessThanOrEqual(response.quotes[1].price_cents);
   });
 
-  it("ListQuotes desempata preco igual de forma deterministica entre chamadas", async () => {
-    // O Postgres nao garante ordem estavel entre linhas de mesmo
-    // price_cents: sem uma chave de desempate deterministica no ORDER BY
-    // (created_at, id), duas chamadas consecutivas da mesma consulta podem
-    // devolver a mesma carga em ordens diferentes. Chamar listQuotes duas
-    // vezes e comparar a ordem prova que o desempate e estavel, sem depender
-    // de conhecer o criterio exato (created_at ou id) usado internamente.
+  it("ListQuotes desempata preco igual por created_at, mais antiga primeiro", async () => {
+    // Duas chamadas seguidas da mesma consulta, contra uma tabela que nao
+    // mudou no intervalo, tendem a devolver a mesma ordem fisica por acaso
+    // (mesmo plano, mesmos dados) mesmo sem nenhum ORDER BY de desempate —
+    // comparar chamada com chamada prova repetibilidade, nao ordenacao
+    // deterministica, e passa mesmo com o bug de volta (confirmado
+    // manualmente). O teste certo afirma a ordem esperada.
+    //
+    // carrier-tie-a e inserida primeiro (ordem fisica/insercao: a, b), mas
+    // recebe o created_at MAIS NOVO; carrier-tie-b e inserida depois e
+    // recebe o created_at MAIS ANTIGO. A ordem correta por created_at ASC
+    // (b, a) fica assim deliberadamente invertida em relacao a ordem de
+    // insercao/fisica — se o desempate por created_at sumir do ORDER BY, a
+    // consulta tende a devolver a ordem fisica (a, b), que diverge do
+    // esperado e falha o teste. Sem essa inversao proposital, um teste que
+    // so confirma "created_at ASC == ordem de insercao" nao teria como
+    // distinguir "ordenei por created_at" de "a ordem fisica coincide com a
+    // de insercao", que e exatamente o problema que causou este teste ser
+    // reescrito.
+    //
+    // Os valores de created_at sao sobrescritos explicitamente apos o
+    // submit, em vez de confiar na resolucao do relogio/timestamptz entre
+    // dois inserts em sequencia rapida — um teste que depende disso e
+    // intermitente por construcao.
     const loadId = `load-tie-${Math.random()}`;
-    await client.submitQuote({
+    const a = await client.submitQuote({
       load_id: loadId,
       carrier_id: "carrier-tie-a",
       price_cents: 80000,
       eta_hours: 12,
     });
-    await client.submitQuote({
+    const b = await client.submitQuote({
       load_id: loadId,
       carrier_id: "carrier-tie-b",
       price_cents: 80000,
       eta_hours: 15,
     });
+    await ds.getRepository(Quote).update(
+      { id: a.id },
+      { createdAt: new Date("2026-01-01T00:00:01.000Z") },
+    );
+    await ds.getRepository(Quote).update(
+      { id: b.id },
+      { createdAt: new Date("2026-01-01T00:00:00.000Z") },
+    );
 
-    const first = await client.listQuotes({ load_id: loadId });
-    const second = await client.listQuotes({ load_id: loadId });
+    const response = await client.listQuotes({ load_id: loadId });
 
-    expect(first.quotes).toHaveLength(2);
-    expect(first.quotes.map((q) => q.id)).toEqual(second.quotes.map((q) => q.id));
+    expect(response.quotes.map((q) => q.carrier_id)).toEqual([
+      "carrier-tie-b", "carrier-tie-a",
+    ]);
   });
 
   it.each([
