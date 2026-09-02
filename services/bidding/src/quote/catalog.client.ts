@@ -8,6 +8,19 @@ export interface ReserveLoadInput {
   idempotencyKey: string;
 }
 
+// Marca explicita de origem: "este erro veio do catalog", nao "este erro
+// tem a mesma forma de um erro do catalog". O controller classifica por
+// `instanceof CatalogRpcError`, nunca por presenca estrutural de um campo
+// `code` numerico — um erro futuro qualquer com `.code` numerico (nao
+// necessariamente do catalog) nao pode vazar como status gRPC arbitrario
+// para o cliente do bidding so por acidente de forma.
+export class CatalogRpcError extends Error {
+  constructor(readonly code: number, message: string) {
+    super(message);
+    this.name = "CatalogRpcError";
+  }
+}
+
 // Formato cru do Load devolvido pelo catalog (snake_case, igual ao .proto).
 // Aqui so os campos que o bidding efetivamente usa (status e carrier_id) tem
 // tipagem util a chamador; os demais existem so para nao quebrar o shape.
@@ -22,13 +35,13 @@ interface GrpcClientConstructor {
     Record<string, (...args: unknown[]) => unknown>;
 }
 
-// Cliente gRPC fino para o catalog: so conhece o proto e o endereco. Erros
-// atravessam sem traducao (grpc.ServiceError, com .code ja no vocabulario de
-// status gRPC do proprio catalog) — quem decide o que fazer com
-// FAILED_PRECONDITION/NOT_FOUND e QuoteService, nao este cliente. Mascarar
-// o erro aqui (embrulhando num tipo generico) apagaria a distincao entre
-// "carga nao existe" e "carga ja foi de outro carrier", que e exatamente o
-// que quem perdeu a corrida precisa saber.
+// Cliente gRPC fino para o catalog: so conhece o proto e o endereco. O
+// `code`/`message` do catalog atravessam intactos, embrulhados em
+// CatalogRpcError so para marcar a origem — quem decide o que fazer com
+// FAILED_PRECONDITION/NOT_FOUND e QuoteService, nao este cliente. Mudar o
+// `code` ou a `message` aqui (em vez de so trocar o tipo do erro) apagaria a
+// distincao entre "carga nao existe" e "carga ja foi de outro carrier", que
+// e exatamente o que quem perdeu a corrida precisa saber.
 export class CatalogClient {
   private readonly raw: grpc.Client & Record<string, (...args: unknown[]) => unknown>;
 
@@ -59,7 +72,12 @@ export class CatalogClient {
         },
         (error: grpc.ServiceError | null, response: CatalogLoad) => {
           if (error) {
-            reject(error);
+            // Rejeita com CatalogRpcError, nao com o grpc.ServiceError cru:
+            // o `code` e a `message` atravessam intactos (nada e mascarado),
+            // mas o tipo do erro passa a carregar a origem de forma
+            // explicita, para quem trata a rejeicao mais adiante (o
+            // controller) nao precisar adivinhar por forma.
+            reject(new CatalogRpcError(error.code, error.details || error.message));
             return;
           }
           resolve(response);

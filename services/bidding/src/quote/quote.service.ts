@@ -35,8 +35,9 @@ export class QuoteService {
   // disputa; (3) so se a reserva vencer, marcar vencedora e perdedoras. Se o
   // catalog recusar (FAILED_PRECONDITION: carga ja reservada; NOT_FOUND:
   // carga inexistente), o erro sobe sem tradução nem captura — e o mesmo
-  // grpc.ServiceError que o catalog devolveu, com o mesmo `code`. Mascarar
-  // esse erro (ex.: convertendo tudo para um erro generico do bidding)
+  // CatalogRpcError que o CatalogClient produziu, com o mesmo `code` que o
+  // catalog devolveu. Mascarar esse erro (ex.: convertendo tudo para um erro
+  // generico do bidding)
   // esconderia de quem perdeu a corrida que ele perdeu, e faria o controller
   // reportar um status diferente do que o catalog decidiu.
   async accept(

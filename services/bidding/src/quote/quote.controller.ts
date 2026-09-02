@@ -1,7 +1,7 @@
-import * as grpc from "@grpc/grpc-js";
 import { status } from "@grpc/grpc-js";
 import { Controller } from "@nestjs/common";
 import { GrpcMethod, RpcException } from "@nestjs/microservices";
+import { CatalogRpcError } from "./catalog.client";
 import { DuplicateQuoteError, InvalidQuoteError, NoQuoteError } from "./quote.errors";
 import { QuoteMessage, toQuoteMessage } from "./quote.mapper";
 import { QuoteService } from "./quote.service";
@@ -79,19 +79,17 @@ export class QuoteController {
       if (e instanceof NoQuoteError) {
         throw new RpcException({ code: status.FAILED_PRECONDITION, message: e.message });
       }
-      if (this.isCatalogServiceError(e)) {
+      if (e instanceof CatalogRpcError) {
         // Repassa o mesmo codigo que o catalog decidiu (FAILED_PRECONDITION,
         // NOT_FOUND, etc.): quem perdeu a corrida precisa saber que perdeu,
-        // nao receber um status generico do bidding.
-        throw new RpcException({ code: e.code, message: e.details || e.message });
+        // nao receber um status generico do bidding. Classificado por
+        // `instanceof CatalogRpcError` (marca explicita de origem posta pelo
+        // proprio CatalogClient), nunca por presenca estrutural de um campo
+        // `code` numerico: um erro futuro qualquer com `.code` numerico nao
+        // pode vazar como status gRPC arbitrario so por acidente de forma.
+        throw new RpcException({ code: e.code, message: e.message });
       }
       throw e;
     }
-  }
-
-  private isCatalogServiceError(e: unknown): e is grpc.ServiceError {
-    return e instanceof Error
-      && "code" in e
-      && typeof (e as { code: unknown }).code === "number";
   }
 }

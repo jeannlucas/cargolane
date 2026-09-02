@@ -176,6 +176,21 @@ describe("QuoteService.accept orquestra AcceptLoad contra o catalog", () => {
     const all = await repo.listByLoad(loadId);
     expect(all.filter((q) => q.status === QuoteStatus.WON)).toHaveLength(1);
     expect(all.filter((q) => q.status === QuoteStatus.LOST)).toHaveLength(1);
+
+    // A afirmacao anterior (exatamente uma vence, com FAILED_PRECONDITION)
+    // fica igualmente satisfeita se o bidding tivesse resolvido a corrida
+    // sozinho no proprio banco — nao prova "quem decide e o catalog".
+    // Amarrar a decisao a sua origem: o carrier que o catalog registrou como
+    // dono da carga (carrier_id, no banco do catalog) precisa ser o mesmo
+    // cuja cotacao ficou WON no bidding. Vale nos dois caminhos internos que
+    // levam a perdedora ao FAILED_PRECONDITION (ver rpcCodeOf acima), porque
+    // em ambos quem efetivamente reservou a carga foi o catalog — o unico
+    // que pode ganhar o UPDATE condicional dele e quem chegou a discar
+    // ReserveLoad primeiro.
+    const winnerQuote = all.find((q) => q.status === QuoteStatus.WON);
+    const load = await catalog.getLoad({ id: loadId });
+    expect(load.status).toBe("reserved");
+    expect(load.carrier_id).toBe(winnerQuote?.carrierId);
   });
 
   it("quando o catalog recusa, nenhuma cotacao muda de status", async () => {
@@ -201,5 +216,22 @@ describe("QuoteService.accept orquestra AcceptLoad contra o catalog", () => {
       .resolves.toBe(status.FAILED_PRECONDITION);
     const stillSubmitted = await repo.listByLoad(loadId);
     expect(stillSubmitted.every((q) => q.status === QuoteStatus.SUBMITTED)).toBe(true);
+  });
+
+  it("aceitar carga inexistente no catalog falha com NOT_FOUND", async () => {
+    // loadId valido (formato uuid) mas nunca publicado no catalog: nada
+    // impede o bidding de ter uma cotacao SUBMITTED para um loadId que o
+    // catalog nao conhece (as duas tabelas nao tem FK entre si), entao
+    // findSubmittedQuote encontra a cotacao normalmente e a chamada chega
+    // ate o catalog.ReserveLoad, onde o catalog devolve NOT_FOUND (mesmo
+    // loadId inexistente que services/catalog/test/load.reserve.spec.ts
+    // usa para o mesmo cenario).
+    const nonExistentLoadId = "00000000-0000-0000-0000-000000000000";
+    await repo.submit({
+      loadId: nonExistentLoadId, carrierId: "carrier-x", priceCents: 100000, etaHours: 24,
+    });
+
+    await expect(rpcCodeOf(acceptViaController(nonExistentLoadId, "carrier-x", "k1")))
+      .resolves.toBe(status.NOT_FOUND);
   });
 });

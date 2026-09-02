@@ -100,6 +100,19 @@ export async function startCatalogForBiddingTests(): Promise<TestCatalogServer> 
   // para si mesmo, porque os dois processos de boot (catalog aqui, bidding
   // no teardown/setup do proprio spec) rodam sequencialmente, nunca em
   // paralelo, dentro do mesmo processo Node.
+  //
+  // DATABASE_URL e restaurado em stop(): sem isso, ficaria apontando para o
+  // Postgres do catalog depois que este helper termina de subir a app. Hoje
+  // isso e inofensivo porque todo helper (startPostgres/startBiddingGrpcServer)
+  // define a sua propria antes de usar, mas um spec futuro que suba o
+  // AppModule do bidding depois deste helper, sem passar por um desses
+  // caminhos, criaria a tabela "quotes" dentro do banco do catalog — o
+  // proprio bidding escrevendo no banco de outro servico, exatamente o que
+  // esta task proibe. CATALOG_GRPC_URL nao precisa do mesmo cuidado: e o
+  // endereco que o CatalogClient de producao espera encontrar la, entao
+  // deixa-lo apontando para este catalog de teste depois do setup e o
+  // comportamento pretendido, nao um vazamento.
+  const previousDatabaseUrl = process.env.DATABASE_URL;
   process.env.DATABASE_URL = pg.url;
   process.env.CATALOG_GRPC_URL = url;
 
@@ -163,6 +176,14 @@ export async function startCatalogForBiddingTests(): Promise<TestCatalogServer> 
       rawClient.close();
       await app.close();
       await pg.stop();
+      // Restaura o valor anterior (mesmo que seja undefined): quem chamar
+      // startPostgres/startBiddingGrpcServer depois deste stop() nao pode
+      // herdar o DATABASE_URL do catalog.
+      if (previousDatabaseUrl === undefined) {
+        delete process.env.DATABASE_URL;
+      } else {
+        process.env.DATABASE_URL = previousDatabaseUrl;
+      }
     },
   };
 }
