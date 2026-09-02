@@ -18,9 +18,14 @@ import { LoadService } from "./load/load.service";
           type: "postgres",
           url: process.env.DATABASE_URL,
           entities: [Load],
-          // Sem migrations neste servico: o schema nasce do synchronize,
-          // igual aos testes de repositorio das tasks anteriores.
-          synchronize: true,
+          // Divida deliberada com prazo, nao decisao de arquitetura: o Plano
+          // 1 nao inclui migrations, entao o schema nasce do synchronize,
+          // igual aos testes de repositorio das tasks anteriores. Migrations
+          // entram junto com o CI, no Plano 4. Ate la, nunca ligado em
+          // producao: synchronize:true em Postgres altera/derruba coluna sem
+          // avisar, e um repositorio publico nao pode expor isso como default
+          // de producao (achado I-2).
+          synchronize: process.env.NODE_ENV !== "production",
         });
         await dataSource.initialize();
         return dataSource;
