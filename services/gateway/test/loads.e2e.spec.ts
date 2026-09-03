@@ -163,6 +163,20 @@ describe("Gateway REST /loads", () => {
     expect(res.status).toBe(404);
   });
 
+  // Precisa rodar antes de qualquer POST /loads bem-sucedido neste arquivo:
+  // prova que uma lista vazia vinda do catalog (nenhuma linha na tabela)
+  // chega ao REST como `[]`, nao como 500. O loader gRPC do catalog client
+  // do gateway (services/gateway/src/app.module.ts) precisa de
+  // `defaults: true` para isso: em proto3 um `repeated` vazio nao vem no
+  // fio, e sem essa opcao o campo chega como `undefined`, e o `.map` em
+  // LoadsController.list lanca TypeError.
+  it("GET /loads sem nenhuma carga publicada devolve 200 com lista vazia", async () => {
+    const res = await request(app.getHttpServer()).get("/loads");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+  });
+
   it("POST /loads valido devolve 201 com o corpo da carga", async () => {
     const res = await request(app.getHttpServer()).post("/loads").send(validPayload());
 
@@ -177,6 +191,31 @@ describe("Gateway REST /loads", () => {
       carrierId: null,
     });
     expect(res.body.id).toEqual(expect.any(String));
+  });
+
+  // A rota GET /loads (sem filtro) nao tinha nenhum teste com resultado
+  // nao vazio ate esta correcao — o teste acima so cobre a lista vazia.
+  it("GET /loads devolve 200 com a carga publicada no teste anterior", async () => {
+    const res = await request(app.getHttpServer()).get("/loads");
+
+    expect(res.status).toBe(200);
+    expect(res.body.length).toBeGreaterThanOrEqual(1);
+    expect(res.body).toContainEqual(
+      expect.objectContaining({
+        origin: "Maringa/PR",
+        destination: "Curitiba/PR",
+        status: "open",
+      }),
+    );
+  });
+
+  it("GET /loads?origin=... sem nenhuma carga correspondente devolve 200 com lista vazia", async () => {
+    const res = await request(app.getHttpServer())
+      .get("/loads")
+      .query({ origin: "Origem-que-nenhuma-carga-usa" });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
   });
 
   // Fecha a lacuna de cobertura do filtro de erro gRPC (grpc-error.filter.ts)

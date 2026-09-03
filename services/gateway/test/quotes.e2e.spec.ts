@@ -161,6 +161,20 @@ describe("Gateway REST /loads/:id/quotes e /loads/:id/accept", () => {
     expect(res.body.losingQuotes).toBe(2);
   });
 
+  // Prova que uma lista vazia vinda do bidding (nenhuma cotacao para a
+  // carga) chega ao REST como `[]`, nao como 500. Mesma causa raiz do teste
+  // equivalente em loads.e2e.spec.ts: o loader gRPC do cliente do bidding
+  // (services/gateway/src/app.module.ts) precisa de `defaults: true` para
+  // um `repeated` vazio virar `[]` em vez de `undefined`.
+  it("GET /loads/:id/quotes numa carga sem cotacao devolve 200 com lista vazia", async () => {
+    const loadId = await publishLoad();
+
+    const res = await request(app.getHttpServer()).get(`/loads/${loadId}/quotes`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+  });
+
   it("GET /loads/:id/quotes lista as cotacoes da carga", async () => {
     const loadId = await publishLoad();
     await request(app.getHttpServer())
