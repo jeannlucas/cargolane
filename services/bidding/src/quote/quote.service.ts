@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { trackBiddingAcceptInFlight } from "./accept-in-flight-tracker";
 import { CatalogClient } from "./catalog.client";
 import { NoQuoteError, InvalidQuoteError } from "./quote.errors";
 import { Quote, QuoteStatus } from "./quote.entity";
@@ -45,16 +46,24 @@ export class QuoteService {
     carrierId: string,
     idempotencyKey: string,
   ): Promise<AcceptLoadResult> {
-    const quote = await this.quotes.findSubmittedQuote(loadId, carrierId);
-    if (!quote) {
-      throw new NoQuoteError(loadId, carrierId);
-    }
+    // trackBiddingAcceptInFlight envolve o corpo inteiro: e um no-op em
+    // producao (ver accept-in-flight-tracker.ts); so
+    // gateway/test/full-flow.e2e.spec.ts liga a contagem, para provar que o
+    // bidding processa aceitacoes concorrentes de verdade, e nao so que o
+    // gateway as disparou sem esperar resposta (o que um contador do lado
+    // do gateway sozinho nao provaria — ver o comentario do tracker).
+    return trackBiddingAcceptInFlight(async () => {
+      const quote = await this.quotes.findSubmittedQuote(loadId, carrierId);
+      if (!quote) {
+        throw new NoQuoteError(loadId, carrierId);
+      }
 
-    await this.catalog.reserveLoad({ loadId, carrierId, idempotencyKey });
+      await this.catalog.reserveLoad({ loadId, carrierId, idempotencyKey });
 
-    const losingQuotes = await this.quotes.markLosers(loadId, carrierId);
-    quote.status = QuoteStatus.WON;
-    return { winningQuote: quote, losingQuotes };
+      const losingQuotes = await this.quotes.markLosers(loadId, carrierId);
+      quote.status = QuoteStatus.WON;
+      return { winningQuote: quote, losingQuotes };
+    });
   }
 
   // Toda comparacao com NaN retorna false em JavaScript: `priceCents <= 0`

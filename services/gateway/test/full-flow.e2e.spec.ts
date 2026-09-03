@@ -1,5 +1,13 @@
 import { INestApplication } from "@nestjs/common";
 import request from "supertest";
+// Irma do tracker do gateway (import abaixo), do lado do bidding — ver o
+// comentario de src/quotes/accept-in-flight-tracker.ts para o porque de
+// existirem os dois. "bidding" resolve para services/bidding via o mesmo
+// symlink de workspace:* que test/helpers/bidding.ts ja usa para
+// "bidding/src/app.module".
+import {
+  peakBiddingAcceptInFlight, resetBiddingAcceptInFlightPeak,
+} from "bidding/src/quote/accept-in-flight-tracker";
 import {
   peakAcceptInFlight, resetAcceptInFlightPeak,
 } from "../src/quotes/accept-in-flight-tracker";
@@ -21,12 +29,17 @@ describe("Fluxo completo: disputa por HTTP entre catalog, bidding e gateway", ()
   let servers: TestCatalogAndBidding;
   let app: INestApplication;
 
-  // ACCEPT_INFLIGHT_TRACKING liga a contagem de chamadas RPC em voo dentro
-  // de QuotesController.accept (ver src/quotes/accept-in-flight-tracker.ts).
-  // Desligada por padrao (producao e os outros specs deste pacote nunca
-  // pagam o custo); precisa estar "1" antes das requisicoes de accept()
-  // deste teste, nao antes de createApp() — ao contrario de
-  // CATALOG_GRPC_URL/BIDDING_GRPC_URL, trackAcceptRpcInFlight le
+  // ACCEPT_INFLIGHT_TRACKING liga os dois contadores de pico — o do gateway
+  // (chamadas RPC AcceptLoad em voo, ver src/quotes/accept-in-flight-tracker.ts)
+  // e o do bidding (execucoes de QuoteService.accept() em andamento, ver
+  // bidding/src/quote/accept-in-flight-tracker.ts). Mesma variavel de
+  // ambiente para os dois de proposito: catalog, bidding e gateway rodam no
+  // MESMO processo Node neste teste (ver test/helpers/bidding.ts), entao um
+  // unico env var liga a instrumentacao nos dois lados sem precisar
+  // coordenar dois nomes. Desligada por padrao (producao e os outros specs
+  // deste pacote nunca pagam o custo); precisa estar "1" antes das
+  // requisicoes de accept() deste teste, nao antes de createApp() — ao
+  // contrario de CATALOG_GRPC_URL/BIDDING_GRPC_URL, os dois trackers leem
   // process.env a cada chamada, nao uma vez no bootstrap.
   const previousTracking = process.env.ACCEPT_INFLIGHT_TRACKING;
 
@@ -116,26 +129,39 @@ describe("Fluxo completo: disputa por HTTP entre catalog, bidding e gateway", ()
       // sincrona, antes de qualquer I/O, entao as tres janelas sempre vao
       // comecar a poucos milissegundos de distancia, nao importa o que o
       // servidor faca depois — inclusive se o gateway serializar accept()
-      // de ponta a ponta com uma fila/mutex no controller, o teste antigo
-      // continuava passando. A prova real precisa vir de dentro do
-      // servidor: resetAcceptInFlightPeak()/peakAcceptInFlight() (ver
-      // src/quotes/accept-in-flight-tracker.ts) contam quantas chamadas RPC
-      // AcceptLoad estao de fato em voo ao mesmo tempo dentro do gateway.
+      // de ponta a ponta com uma fila/mutex no controller, aquela versao
+      // continuava passando. Uma correcao seguinte trocou por um contador
+      // de pico dentro do gateway (peakAcceptInFlight) — mas um SEGUNDO
+      // revisor, um nivel abaixo, mostrou que esse contador tambem tem um
+      // ponto cego: gRPC sobre HTTP/2 multiplexa streams, entao ele so
+      // prova que o gateway DISPAROU as tres chamadas sem esperar resposta
+      // uma da outra, nao que o BIDDING as processou em sobreposicao — um
+      // mutex colocado so dentro de QuoteService.accept() (no bidding)
+      // deixava esse contador em 3 do mesmo jeito, mesmo com o bidding
+      // processando uma aceitacao de cada vez. A prova completa precisa dos
+      // DOIS contadores, um de cada lado da chamada RPC: ver o comentario
+      // de src/quotes/accept-in-flight-tracker.ts para o detalhe de por que
+      // nenhum dos dois sozinho basta.
       resetAcceptInFlightPeak();
+      resetBiddingAcceptInFlightPeak();
       const attempts = CARRIERS.map((carrier) =>
         request(app.getHttpServer())
           .post(`/loads/${loadId}/accept`)
           .send({ carrierId: carrier.carrierId, idempotencyKey: `k-${carrier.carrierId}` }));
       const results = await Promise.allSettled(attempts);
 
-      // Prova de sobreposicao real, do lado do servidor: o pico de chamadas
-      // RPC em voo dentro de accept() precisa ter chegado a 3 — as tres ao
-      // mesmo tempo. Se o gateway tivesse serializado essa chamada (mutex,
-      // fila, pool de conexao esgotado), o pico ficaria em 1 e esta
-      // asserção cairia, mesmo com as tres respostas corretas (uma 200,
-      // duas 409) — e foi exatamente isso que o revisor demonstrou antes
-      // desta correção.
+      // Prova de sobreposicao real dos dois lados da chamada RPC. O pico de
+      // chamadas AcceptLoad em voo a partir do gateway precisa ter chegado
+      // a 3 (o cliente nao serializou o disparo), E o pico de execucoes de
+      // QuoteService.accept() em andamento dentro do bidding tambem precisa
+      // ter chegado a 3 (o servidor nao serializou o processamento). Um
+      // mutex em qualquer um dos dois lados (controller do gateway ou
+      // accept() do bidding) derruba o contador correspondente para 1 sem
+      // mudar o resultado HTTP (ainda uma 200, duas 409) — e foi
+      // exatamente isso que os dois revisores desta task demonstraram, um
+      // de cada lado.
       expect(peakAcceptInFlight()).toBe(3);
+      expect(peakBiddingAcceptInFlight()).toBe(3);
 
       const responses = results.map((r) => {
         if (r.status !== "fulfilled") {
