@@ -165,8 +165,8 @@ Escape: `git push --no-verify`.
 ## Cobertura de testes
 
 Cobertura é relatada honestamente, em vez de perseguir um selo numérico.
-Isto é o que existe hoje, somando os três pacotes: **88 testes** (38 em
-`services/catalog`, 32 em `services/bidding`, 18 em `services/gateway`).
+Isto é o que existe hoje, somando os três pacotes: **95 testes** (38 em
+`services/catalog`, 33 em `services/bidding`, 24 em `services/gateway`).
 
 **`services/catalog` (38 testes) — a fonte da verdade sobre cargas:**
 
@@ -200,7 +200,7 @@ Isto é o que existe hoje, somando os três pacotes: **88 testes** (38 em
   `AppModule`. Este último também foi confirmado por sabotagem: remover o
   provider do módulo faz o teste de fiação falhar.
 
-**`services/bidding` (32 testes) — cotações e orquestração da aceitação:**
+**`services/bidding` (33 testes) — cotações e orquestração da aceitação:**
 
 - **Validação e ciclo de vida da cotação** (`test/quote.validation.spec.ts`,
   `test/quote.entity.spec.ts`, `test/quote.submit.spec.ts`): invariantes de
@@ -218,7 +218,7 @@ Isto é o que existe hoje, somando os três pacotes: **88 testes** (38 em
   das duas venceu, não que foi o `UPDATE` condicional do catalog quem
   decidiu.
 
-**`services/gateway` (18 testes) — a porta HTTP pública:**
+**`services/gateway` (24 testes) — a porta HTTP pública:**
 
 - **`test/loads.e2e.spec.ts` e `test/quotes.e2e.spec.ts`**: tradução
   REST-para-gRPC para `POST /loads`, `GET /loads/:id`, `GET /loads`,
@@ -237,15 +237,21 @@ Isto é o que existe hoje, somando os três pacotes: **88 testes** (38 em
   bidding e gateway de pé ao mesmo tempo, cada um com seu próprio Postgres,
   exercitados só pela API HTTP pública. Publica uma carga, três
   transportadoras cotam, as três aceitam ao mesmo tempo (as três
-  requisições HTTP são disparadas antes de qualquer uma responder, e o
-  teste confere que as janelas de tempo das três se sobrepõem por
-  completo — a mesma preocupação do teste de 50 do catalog, sem precisar de
-  aquecimento de pool porque três conexões cabem folgadas no pool padrão de
-  10 do TypeORM em cada um dos dois hops downstream). Exatamente uma recebe
-  `200`, as outras duas `409`; a carga fica `reserved`; e o `carrierId` que
-  `GET /loads/:id` devolve é conferido contra a cotação que ficou `won` —
-  a mesma amarração à origem do teste do bidding, agora provada pela API
-  pública inteira.
+  requisições HTTP são disparadas antes de qualquer uma responder). A prova
+  de que o *servidor* processou as três em sobreposição real — não só que o
+  cliente as disparou sem esperar resposta — vem de dois contadores de pico
+  de execuções em andamento, um de cada lado da chamada gRPC entre gateway
+  e bidding (`peakAcceptInFlight` no gateway, `peakBiddingAcceptInFlight`
+  no bidding): os dois precisam chegar a 3, porque um mutex em qualquer um
+  dos dois lados derrubaria o contador correspondente para 1 sem mudar o
+  resultado HTTP. Essa checagem substitui uma versão anterior que comparava
+  janelas de tempo capturadas no cliente antes/depois de cada requisição —
+  descartada por ser quase tautológica (as janelas sempre começam a poucos
+  milissegundos de distância, não importa o que o servidor faça depois).
+  Exatamente uma requisição recebe `200`, as outras duas `409`; a carga
+  fica `reserved`; e o `carrierId` que `GET /loads/:id` devolve é conferido
+  contra a cotação que ficou `won` — a mesma amarração à origem do teste do
+  bidding, agora provada pela API pública inteira.
 
 **Não coberto, deliberadamente fora do escopo deste marco:**
 
@@ -442,8 +448,8 @@ Escape hatch: `git push --no-verify`.
 ## Test coverage
 
 Coverage is reported honestly instead of chasing a numeric badge. This is
-what exists today, across the three packages: **88 tests** (38 in
-`services/catalog`, 32 in `services/bidding`, 18 in `services/gateway`).
+what exists today, across the three packages: **95 tests** (38 in
+`services/catalog`, 33 in `services/bidding`, 24 in `services/gateway`).
 
 **`services/catalog` (38 tests) — the source of truth for loads:**
 
@@ -477,7 +483,7 @@ what exists today, across the three packages: **88 tests** (38 in
   last one was confirmed by sabotage too: removing the provider makes the
   wiring test fail.
 
-**`services/bidding` (32 tests) — quotes and acceptance orchestration:**
+**`services/bidding` (33 tests) — quotes and acceptance orchestration:**
 
 - **Quote validation and lifecycle** (`test/quote.validation.spec.ts`,
   `test/quote.entity.spec.ts`, `test/quote.submit.spec.ts`): domain
@@ -495,7 +501,7 @@ what exists today, across the three packages: **88 tests** (38 in
   prove that one of the two won, not that the catalog's conditional
   `UPDATE` was the one deciding it.
 
-**`services/gateway` (18 tests) — the public HTTP entry point:**
+**`services/gateway` (24 tests) — the public HTTP entry point:**
 
 - **`test/loads.e2e.spec.ts` and `test/quotes.e2e.spec.ts`**: REST-to-gRPC
   translation for `POST /loads`, `GET /loads/:id`, `GET /loads`,
@@ -513,12 +519,18 @@ what exists today, across the three packages: **88 tests** (38 in
   catalog, bidding, and gateway up at the same time, each with its own
   Postgres, exercised only through the public HTTP API. It publishes a
   load, has three carriers quote it, and has all three accept at once (the
-  three HTTP requests are fired before any of them responds, and the test
-  checks that their time windows fully overlap — the same concern as the
-  catalog's 50-carrier test, without needing pool warm-up because three
-  connections fit comfortably inside TypeORM's default pool of 10 at each
-  of the two downstream hops). Exactly one gets `200`, the other two `409`;
-  the load ends up `reserved`; and the `carrierId` that `GET /loads/:id`
+  three HTTP requests are fired before any of them responds). Proof that
+  the *server* actually processed the three in real overlap — not just that
+  the client fired them without waiting — comes from two peak in-flight
+  counters, one on each side of the gRPC call between gateway and bidding
+  (`peakAcceptInFlight` in the gateway, `peakBiddingAcceptInFlight` in
+  bidding): both have to reach 3, because a mutex on either side would drop
+  the corresponding counter to 1 without changing the HTTP outcome. This
+  check replaces an earlier version that compared client-captured
+  before/after time windows — dropped for being nearly tautological (the
+  windows always start a few milliseconds apart no matter what the server
+  does afterward). Exactly one request gets `200`, the other two `409`; the
+  load ends up `reserved`; and the `carrierId` that `GET /loads/:id`
   returns is checked against the quote that ended up `won` — the same
   tie-to-origin proof as the bidding test, now proven through the whole
   public API.
