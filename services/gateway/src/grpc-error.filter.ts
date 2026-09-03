@@ -90,6 +90,22 @@ export class GrpcErrorFilter implements ExceptionFilter {
       return;
     }
 
+    // Excecao que nao e HttpException nem tem a forma de um erro gRPC: um
+    // bug de programacao real no proprio gateway (TypeError, erro de
+    // serializacao, etc.), nao um erro de dominio de um servico downstream.
+    // O corpo da resposta continua generico pelo mesmo motivo do branch de
+    // codigo gRPC nao mapeado acima, mas aqui o log e ainda mais importante:
+    // sem ele, um bug no codigo do gateway produz 500 sem nenhuma linha de
+    // ERROR, e nao ha erro de dominio nenhum para investigar depois.
+    if (exception instanceof Error) {
+      this.logger.error(
+        `unhandled error: ${exception.message}`,
+        exception.stack,
+      );
+    } else {
+      this.logger.error(`unhandled error: ${JSON.stringify(exception)}`);
+    }
+
     response.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
       statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
       message: "internal server error",
