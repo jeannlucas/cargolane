@@ -30,7 +30,14 @@ import { QuotesController } from "./quotes/quotes.controller";
             // usa para saber onde discar (services/bidding/src/quote/catalog.client.ts)
             // — aqui o gateway a le pelo mesmo motivo.
             url: process.env.CATALOG_GRPC_URL ?? "localhost:50051",
-            loader: { keepCase: true },
+            // defaults: true preenche campos repeated ausentes com [] em vez
+            // de undefined. Em proto3, uma resposta sem nenhum item no
+            // repeated chega sem o campo; sem esta opcao os controllers que
+            // fazem `.map` sobre a lista (loads.controller, quotes.controller)
+            // recebem undefined e lancam TypeError, virando 500. O mesmo
+            // loader do lado do servidor (main.ts) nao sente diferenca porque
+            // quem serializa a resposta e o proprio Nest, nao o loader.
+            loader: { keepCase: true, defaults: true },
           },
         }),
       },
@@ -49,7 +56,10 @@ import { QuotesController } from "./quotes/quotes.controller";
             // onde escutar (services/bidding/src/main.ts) — aqui o gateway a
             // le pelo mesmo motivo que le CATALOG_GRPC_URL.
             url: process.env.BIDDING_GRPC_URL ?? "localhost:50052",
-            loader: { keepCase: true },
+            // Mesmo motivo do loader do CATALOG_CLIENT acima: sem
+            // defaults: true, um repeated vazio na resposta (ex.: nenhuma
+            // cotacao para a carga) chega como undefined em vez de [].
+            loader: { keepCase: true, defaults: true },
           },
         }),
       },
