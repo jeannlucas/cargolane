@@ -5,6 +5,7 @@ import {
 import { ClientGrpc } from "@nestjs/microservices";
 import { firstValueFrom, Observable } from "rxjs";
 import { BIDDING_CLIENT } from "../bidding.constants";
+import { trackAcceptRpcInFlight } from "./accept-in-flight-tracker";
 import { AcceptLoadDto, SubmitQuoteDto } from "./quotes.dto";
 
 // Forma crua devolvida pelo bidding (snake_case, igual ao .proto). Nao
@@ -116,12 +117,19 @@ export class QuotesController implements OnModuleInit {
     @Param("id", new ParseUUIDPipe()) id: string,
     @Body() dto: AcceptLoadDto,
   ): Promise<AcceptLoadResponse> {
-    const result = await firstValueFrom(
-      this.bidding.AcceptLoad({
-        load_id: id,
-        carrier_id: dto.carrierId,
-        idempotency_key: dto.idempotencyKey,
-      }),
+    // trackAcceptRpcInFlight envolve exatamente a chamada RPC — o trabalho
+    // real desta rota, incluindo a ida e volta ate o bidding (que por sua
+    // vez disputa a carga contra o catalog). E um no-op em producao (ver
+    // accept-in-flight-tracker.ts); so test/full-flow.e2e.spec.ts liga a
+    // contagem, para provar concorrencia real do lado do servidor.
+    const result = await trackAcceptRpcInFlight(() =>
+      firstValueFrom(
+        this.bidding.AcceptLoad({
+          load_id: id,
+          carrier_id: dto.carrierId,
+          idempotency_key: dto.idempotencyKey,
+        }),
+      ),
     );
     return {
       winningQuote: toQuoteResponse(result.winning_quote),

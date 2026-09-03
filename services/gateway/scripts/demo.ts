@@ -10,7 +10,7 @@
 //
 // It does not replace the tests: nothing here asserts anything, and the
 // output is for humans to read. Run `pnpm test` at the repository root for
-// the guarantees (87+ tests across catalog, bidding, and gateway).
+// the guarantees, across catalog, bidding, and gateway.
 //
 // Usage:
 //   1. docker compose up -d

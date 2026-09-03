@@ -1,5 +1,8 @@
 import { INestApplication } from "@nestjs/common";
 import request from "supertest";
+import {
+  peakAcceptInFlight, resetAcceptInFlightPeak,
+} from "../src/quotes/accept-in-flight-tracker";
 import { createApp } from "../src/create-app";
 import {
   startCatalogAndBiddingForGatewayTests, TestCatalogAndBidding,
@@ -18,6 +21,15 @@ describe("Fluxo completo: disputa por HTTP entre catalog, bidding e gateway", ()
   let servers: TestCatalogAndBidding;
   let app: INestApplication;
 
+  // ACCEPT_INFLIGHT_TRACKING liga a contagem de chamadas RPC em voo dentro
+  // de QuotesController.accept (ver src/quotes/accept-in-flight-tracker.ts).
+  // Desligada por padrao (producao e os outros specs deste pacote nunca
+  // pagam o custo); precisa estar "1" antes das requisicoes de accept()
+  // deste teste, nao antes de createApp() — ao contrario de
+  // CATALOG_GRPC_URL/BIDDING_GRPC_URL, trackAcceptRpcInFlight le
+  // process.env a cada chamada, nao uma vez no bootstrap.
+  const previousTracking = process.env.ACCEPT_INFLIGHT_TRACKING;
+
   beforeAll(async () => {
     // CATALOG_GRPC_URL/BIDDING_GRPC_URL precisam estar definidas ANTES de
     // createApp(): sao lidas dentro dos useFactory do
@@ -27,9 +39,15 @@ describe("Fluxo completo: disputa por HTTP entre catalog, bidding e gateway", ()
     servers = await startCatalogAndBiddingForGatewayTests();
     app = await createApp();
     await app.init();
+    process.env.ACCEPT_INFLIGHT_TRACKING = "1";
   }, 60_000);
 
   afterAll(async () => {
+    if (previousTracking === undefined) {
+      delete process.env.ACCEPT_INFLIGHT_TRACKING;
+    } else {
+      process.env.ACCEPT_INFLIGHT_TRACKING = previousTracking;
+    }
     await app.close();
     await servers.stop();
   });
@@ -88,33 +106,36 @@ describe("Fluxo completo: disputa por HTTP entre catalog, bidding e gateway", ()
       // das tres de fato rejeita, mas Promise.allSettled e o jeito
       // instruido, e explicito, de expressar "todas terminam, nenhuma
       // cancela a corrida das outras".
-      const timeline: { carrierId: string; start: number; end: number }[] = [];
-      const attempts = CARRIERS.map((carrier) => {
-        const start = Date.now();
-        return request(app.getHttpServer())
+      //
+      // Isso garante que o CLIENTE disparou as tres sem esperar resposta —
+      // mas nao prova, sozinho, que o SERVIDOR as processou em sobreposicao.
+      // Uma versao anterior deste teste tentava provar isso medindo
+      // start/end no cliente (Date.now() antes do await, de novo depois) e
+      // conferindo que as tres janelas se sobrepunham. Um revisor mostrou
+      // que essa checagem e quase tautologica: `start` e capturado de forma
+      // sincrona, antes de qualquer I/O, entao as tres janelas sempre vao
+      // comecar a poucos milissegundos de distancia, nao importa o que o
+      // servidor faca depois — inclusive se o gateway serializar accept()
+      // de ponta a ponta com uma fila/mutex no controller, o teste antigo
+      // continuava passando. A prova real precisa vir de dentro do
+      // servidor: resetAcceptInFlightPeak()/peakAcceptInFlight() (ver
+      // src/quotes/accept-in-flight-tracker.ts) contam quantas chamadas RPC
+      // AcceptLoad estao de fato em voo ao mesmo tempo dentro do gateway.
+      resetAcceptInFlightPeak();
+      const attempts = CARRIERS.map((carrier) =>
+        request(app.getHttpServer())
           .post(`/loads/${loadId}/accept`)
-          .send({ carrierId: carrier.carrierId, idempotencyKey: `k-${carrier.carrierId}` })
-          .then((res) => {
-            timeline.push({ carrierId: carrier.carrierId, start, end: Date.now() });
-            return res;
-          });
-      });
+          .send({ carrierId: carrier.carrierId, idempotencyKey: `k-${carrier.carrierId}` }));
       const results = await Promise.allSettled(attempts);
 
-      // Prova de sobreposicao real: as tres janelas [start, end] precisam se
-      // sobrepor por completo (o inicio mais tardio acontece antes do fim
-      // mais precoce). Isso so e verdade se as tres requisicoes estiverem em
-      // voo ao mesmo tempo — se tivessem serializado (ex.: um pool de
-      // conexao esgotado enfileirando a segunda e a terceira atras da
-      // primeira), o inicio da ultima aconteceria depois do fim da primeira,
-      // e esta asserção cairia. Com apenas 3 requisicoes concorrentes — bem
-      // abaixo do pool default do TypeORM (10) em cada um dos dois hops
-      // (bidding e catalog) — nenhum aquecimento de pool e necessario aqui,
-      // diferente do teste de 50 do catalog.
-      const maxStart = Math.max(...timeline.map((t) => t.start));
-      const minEnd = Math.min(...timeline.map((t) => t.end));
-      expect(timeline).toHaveLength(3);
-      expect(maxStart).toBeLessThan(minEnd);
+      // Prova de sobreposicao real, do lado do servidor: o pico de chamadas
+      // RPC em voo dentro de accept() precisa ter chegado a 3 — as tres ao
+      // mesmo tempo. Se o gateway tivesse serializado essa chamada (mutex,
+      // fila, pool de conexao esgotado), o pico ficaria em 1 e esta
+      // asserção cairia, mesmo com as tres respostas corretas (uma 200,
+      // duas 409) — e foi exatamente isso que o revisor demonstrou antes
+      // desta correção.
+      expect(peakAcceptInFlight()).toBe(3);
 
       const responses = results.map((r) => {
         if (r.status !== "fulfilled") {
