@@ -1,8 +1,10 @@
 import { Module } from "@nestjs/common";
 import { ClientsModule, Transport } from "@nestjs/microservices";
+import { BIDDING_CLIENT } from "./bidding.constants";
 import { CATALOG_CLIENT } from "./catalog.constants";
 import { LoadsController } from "./loads/loads.controller";
-import { CATALOG_PROTO_PATH } from "./proto-path";
+import { BIDDING_PROTO_PATH, CATALOG_PROTO_PATH } from "./proto-path";
+import { QuotesController } from "./quotes/quotes.controller";
 
 @Module({
   imports: [
@@ -32,8 +34,27 @@ import { CATALOG_PROTO_PATH } from "./proto-path";
           },
         }),
       },
+      {
+        name: BIDDING_CLIENT,
+        // Mesmo raciocinio de useFactory vs. register do CATALOG_CLIENT
+        // acima: BIDDING_GRPC_URL precisa ser lida so no bootstrap, nunca no
+        // import deste modulo, para o teste e2e (test/quotes.e2e.spec.ts)
+        // poder apontar para um bidding de teste antes de criar a app.
+        useFactory: () => ({
+          transport: Transport.GRPC,
+          options: {
+            package: "bidding",
+            protoPath: BIDDING_PROTO_PATH,
+            // BIDDING_GRPC_URL: mesma variavel que o bidding usa para saber
+            // onde escutar (services/bidding/src/main.ts) — aqui o gateway a
+            // le pelo mesmo motivo que le CATALOG_GRPC_URL.
+            url: process.env.BIDDING_GRPC_URL ?? "localhost:50052",
+            loader: { keepCase: true },
+          },
+        }),
+      },
     ]),
   ],
-  controllers: [LoadsController],
+  controllers: [LoadsController, QuotesController],
 })
 export class AppModule {}

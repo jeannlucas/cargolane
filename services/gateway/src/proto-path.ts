@@ -36,3 +36,8 @@ function findProto(fileName: string, startDir: string): string {
 }
 
 export const CATALOG_PROTO_PATH = findProto("catalog.proto", __dirname);
+
+// bidding.proto mora no mesmo diretorio "proto" na raiz do monorepo (veja
+// findProto acima), entao a mesma busca ascendente a partir de __dirname do
+// gateway encontra os dois arquivos.
+export const BIDDING_PROTO_PATH = findProto("bidding.proto", __dirname);
