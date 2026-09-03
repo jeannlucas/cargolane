@@ -1,0 +1,164 @@
+import { INestApplication } from "@nestjs/common";
+import request from "supertest";
+import { createApp } from "../src/create-app";
+import {
+  startCatalogAndBiddingForGatewayTests, TestCatalogAndBidding,
+} from "./helpers/bidding";
+
+// Este e o teste que fecha o Plano 2: prova que catalog, bidding e gateway
+// funcionam juntos, e que a disputa pela carga acontece de ponta a ponta
+// atraves da API HTTP publica — nao de um teste unitario contra um dos tres
+// servicos isolado, nem de uma chamada gRPC direta que pule o gateway.
+//
+// Nenhum mock: catalog e bidding sobem de verdade (cada um com seu proprio
+// Postgres via Testcontainers, atras de startCatalogAndBiddingForGatewayTests
+// — ver test/helpers/bidding.ts), e o gateway fala com os dois por gRPC real,
+// exatamente como em producao.
+describe("Fluxo completo: disputa por HTTP entre catalog, bidding e gateway", () => {
+  let servers: TestCatalogAndBidding;
+  let app: INestApplication;
+
+  beforeAll(async () => {
+    // CATALOG_GRPC_URL/BIDDING_GRPC_URL precisam estar definidas ANTES de
+    // createApp(): sao lidas dentro dos useFactory do
+    // ClientsModule.registerAsync (services/gateway/src/app.module.ts),
+    // chamados quando o Nest resolve os providers no bootstrap, dentro deste
+    // createApp() — mesma ordem de test/quotes.e2e.spec.ts.
+    servers = await startCatalogAndBiddingForGatewayTests();
+    app = await createApp();
+    await app.init();
+  }, 60_000);
+
+  afterAll(async () => {
+    await app.close();
+    await servers.stop();
+  });
+
+  function validLoadPayload() {
+    return {
+      shipperId: "shipper-final",
+      origin: "Maringa/PR",
+      destination: "Curitiba/PR",
+      weightKg: 12000,
+      pickupWindowEnd: "2026-12-31T12:00:00Z",
+      priceCeilingCents: 350000,
+    };
+  }
+
+  // Tres transportadoras cotam a mesma carga. O preco/eta nao decide quem
+  // vence: quem vence e quem chegar primeiro no AcceptLoad, exatamente como
+  // no teste de corrida do catalog (services/catalog/test/load.reserve.spec.ts)
+  // e do bidding (services/bidding/test/quote.accept.spec.ts) — este teste
+  // repete o mesmo mecanismo, mas pela API HTTP publica, com os tres
+  // servicos de pe.
+  const CARRIERS = [
+    { carrierId: "carrier-alpha", priceCents: 180000, etaHours: 30 },
+    { carrierId: "carrier-beta", priceCents: 150000, etaHours: 20 },
+    { carrierId: "carrier-gamma", priceCents: 300000, etaHours: 40 },
+  ];
+
+  it(
+    "publica carga, tres cotam, tres aceitam ao mesmo tempo: uma 200, duas 409, "
+      + "e a decisao vem do catalog",
+    async () => {
+      // 1. Publica a carga.
+      const publishRes = await request(app.getHttpServer())
+        .post("/loads")
+        .send(validLoadPayload());
+      expect(publishRes.status).toBe(201);
+      expect(publishRes.body.status).toBe("open");
+      const loadId = publishRes.body.id as string;
+
+      // 2. As tres transportadoras cotam (sequencial: nao ha disputa aqui,
+      // SubmitQuote nao tem restricao de unicidade entre carriers diferentes).
+      for (const carrier of CARRIERS) {
+        const quoteRes = await request(app.getHttpServer())
+          .post(`/loads/${loadId}/quotes`)
+          .send(carrier);
+        expect(quoteRes.status).toBe(201);
+        expect(quoteRes.body.status).toBe("submitted");
+      }
+
+      // 3. As tres aceitam AO MESMO TEMPO. As tres promises sao criadas
+      // sincronamente, no mesmo map, antes de qualquer await: as tres
+      // requisicoes HTTP saem para o socket antes que qualquer resposta
+      // volte. Promise.allSettled (nao Promise.all) porque perder a corrida
+      // aqui e um resultado esperado (409), nao uma falha da promise em si —
+      // supertest resolve a promise em qualquer status HTTP, entao nenhuma
+      // das tres de fato rejeita, mas Promise.allSettled e o jeito
+      // instruido, e explicito, de expressar "todas terminam, nenhuma
+      // cancela a corrida das outras".
+      const timeline: { carrierId: string; start: number; end: number }[] = [];
+      const attempts = CARRIERS.map((carrier) => {
+        const start = Date.now();
+        return request(app.getHttpServer())
+          .post(`/loads/${loadId}/accept`)
+          .send({ carrierId: carrier.carrierId, idempotencyKey: `k-${carrier.carrierId}` })
+          .then((res) => {
+            timeline.push({ carrierId: carrier.carrierId, start, end: Date.now() });
+            return res;
+          });
+      });
+      const results = await Promise.allSettled(attempts);
+
+      // Prova de sobreposicao real: as tres janelas [start, end] precisam se
+      // sobrepor por completo (o inicio mais tardio acontece antes do fim
+      // mais precoce). Isso so e verdade se as tres requisicoes estiverem em
+      // voo ao mesmo tempo — se tivessem serializado (ex.: um pool de
+      // conexao esgotado enfileirando a segunda e a terceira atras da
+      // primeira), o inicio da ultima aconteceria depois do fim da primeira,
+      // e esta asserção cairia. Com apenas 3 requisicoes concorrentes — bem
+      // abaixo do pool default do TypeORM (10) em cada um dos dois hops
+      // (bidding e catalog) — nenhum aquecimento de pool e necessario aqui,
+      // diferente do teste de 50 do catalog.
+      const maxStart = Math.max(...timeline.map((t) => t.start));
+      const minEnd = Math.min(...timeline.map((t) => t.end));
+      expect(timeline).toHaveLength(3);
+      expect(maxStart).toBeLessThan(minEnd);
+
+      const responses = results.map((r) => {
+        if (r.status !== "fulfilled") {
+          throw new Error(`accept nao deveria rejeitar a promise: ${String(r.reason)}`);
+        }
+        return r.value;
+      });
+
+      const winners = responses.filter((r) => r.status === 200);
+      const losers = responses.filter((r) => r.status === 409);
+      expect(winners).toHaveLength(1);
+      expect(losers).toHaveLength(2);
+
+      const winningBody = winners[0].body as {
+        winningQuote: { carrierId: string; status: string };
+        losingQuotes: number;
+      };
+      expect(winningBody.winningQuote.status).toBe("won");
+      expect(winningBody.losingQuotes).toBe(2);
+      const winningCarrierId = winningBody.winningQuote.carrierId;
+      expect(CARRIERS.map((c) => c.carrierId)).toContain(winningCarrierId);
+
+      // 4. Amarra a decisao a origem: o carrier_id que o catalog registrou
+      // como dono da carga precisa ser exatamente o mesmo cuja cotacao ficou
+      // "won" no bidding. Sem isso, o teste provaria so que uma das tres
+      // venceu — nao que foi o UPDATE condicional do catalog quem decidiu
+      // (o achado da Task 4: o bidding poderia, em tese, ter resolvido a
+      // corrida sozinho no proprio banco, sem o catalog participar dela).
+      const loadCheck = await request(app.getHttpServer()).get(`/loads/${loadId}`);
+      expect(loadCheck.status).toBe(200);
+      expect(loadCheck.body.status).toBe("reserved");
+      expect(loadCheck.body.carrierId).toBe(winningCarrierId);
+
+      // 5. As tres cotacoes terminam won/lost/lost, e a "won" e da mesma
+      // transportadora que o catalog registrou.
+      const quotesCheck = await request(app.getHttpServer()).get(`/loads/${loadId}/quotes`);
+      expect(quotesCheck.status).toBe(200);
+      const quotes = quotesCheck.body as { carrierId: string; status: string }[];
+      const won = quotes.filter((q) => q.status === "won");
+      const lost = quotes.filter((q) => q.status === "lost");
+      expect(won).toHaveLength(1);
+      expect(lost).toHaveLength(2);
+      expect(won[0].carrierId).toBe(winningCarrierId);
+    },
+    30_000,
+  );
+});

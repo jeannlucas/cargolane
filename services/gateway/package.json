@@ -5,7 +5,8 @@
   "scripts": {
     "test": "jest",
     "build": "tsc -p tsconfig.build.json",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "demo": "ts-node scripts/demo.ts"
   },
   "dependencies": {
     "@grpc/grpc-js": "^1.12.5",
