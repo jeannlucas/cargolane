@@ -3,6 +3,16 @@ import { DataSource } from "typeorm";
 import { Load, LoadStatus } from "../src/load/load.entity";
 import { CatalogGrpcClient, startCatalogGrpcServer } from "./helpers/grpc";
 
+// Relativa a "agora" em vez de uma data literal: a Task 1 deste plano criou
+// a invariante "pickup_window_end deve ser no futuro" (load.service.ts), e
+// uma data literal fixa neste arquivo viraria passado num dia certo e
+// derrubaria toda a suite sem nenhuma mudanca de codigo. `daysFromNow`
+// aceita fracionario (ex.: 0.5) para os casos que so precisam estar
+// minimamente no futuro.
+function futureIso(daysFromNow: number): string {
+  return new Date(Date.now() + daysFromNow * 86_400_000).toISOString();
+}
+
 describe("CatalogService gRPC", () => {
   let client: CatalogGrpcClient;
   let ds: DataSource;
@@ -25,7 +35,7 @@ describe("CatalogService gRPC", () => {
       origin: "Maringa/PR",
       destination: "Curitiba/PR",
       weight_kg: 12000,
-      pickup_window_end: "2026-09-30T12:00:00Z",
+      pickup_window_end: futureIso(30),
       price_ceiling_cents: 350000,
     });
 
@@ -40,7 +50,7 @@ describe("CatalogService gRPC", () => {
       origin: "Maringa/PR",
       destination: "Curitiba/PR",
       weight_kg: 12000,
-      pickup_window_end: "2026-09-30T12:00:00Z",
+      pickup_window_end: futureIso(30),
       price_ceiling_cents: 350000,
     });
     await client.reserveLoad({
@@ -58,7 +68,7 @@ describe("CatalogService gRPC", () => {
       origin: "Londrina/PR",
       destination: "Sao Paulo/SP",
       weight_kg: 8000,
-      pickup_window_end: "2026-10-01T09:00:00Z",
+      pickup_window_end: futureIso(31),
       price_ceiling_cents: 500000,
     });
 
@@ -79,7 +89,7 @@ describe("CatalogService gRPC", () => {
       origin: "Maringa/PR",
       destination: "Curitiba/PR",
       weight_kg: 0,
-      pickup_window_end: "2026-09-30T12:00:00Z",
+      pickup_window_end: futureIso(30),
       price_ceiling_cents: 350000,
     })).rejects.toMatchObject({ code: status.INVALID_ARGUMENT });
   });
@@ -118,7 +128,7 @@ describe("CatalogService gRPC", () => {
       origin,
       destination,
       weight_kg: 5000,
-      pickup_window_end: "2026-11-01T09:00:00Z",
+      pickup_window_end: futureIso(60),
       price_ceiling_cents: 120000,
     });
     const toReserve = await client.publishLoad({
@@ -126,7 +136,7 @@ describe("CatalogService gRPC", () => {
       origin,
       destination,
       weight_kg: 5000,
-      pickup_window_end: "2026-11-01T09:00:00Z",
+      pickup_window_end: futureIso(60),
       price_ceiling_cents: 120000,
     });
     await client.reserveLoad({
@@ -154,7 +164,7 @@ describe("CatalogService gRPC", () => {
       origin: "Sem-Filtro-Grpc-A/PR",
       destination: "Sem-Filtro-Grpc-B/PR",
       weight_kg: 3000,
-      pickup_window_end: "2026-11-05T09:00:00Z",
+      pickup_window_end: futureIso(65),
       price_ceiling_cents: 90000,
     });
     const toReserve = await client.publishLoad({
@@ -162,7 +172,7 @@ describe("CatalogService gRPC", () => {
       origin: "Sem-Filtro-Grpc-C/PR",
       destination: "Sem-Filtro-Grpc-D/PR",
       weight_kg: 3000,
-      pickup_window_end: "2026-11-05T09:00:00Z",
+      pickup_window_end: futureIso(65),
       price_ceiling_cents: 90000,
     });
     await client.reserveLoad({

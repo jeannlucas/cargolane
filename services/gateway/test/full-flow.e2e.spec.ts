@@ -65,13 +65,17 @@ describe("Fluxo completo: disputa por HTTP entre catalog, bidding e gateway", ()
     await servers.stop();
   });
 
+  // Relativa a "agora": pickupWindowEnd precisa estar no futuro (invariante
+  // do catalog, ver load.service.ts), e uma data literal fixa aqui venceria
+  // num dia certo e derrubaria a suite inteira sem nenhuma mudanca de
+  // codigo.
   function validLoadPayload() {
     return {
       shipperId: "shipper-final",
       origin: "Maringa/PR",
       destination: "Curitiba/PR",
       weightKg: 12000,
-      pickupWindowEnd: "2026-12-31T12:00:00Z",
+      pickupWindowEnd: new Date(Date.now() + 90 * 86_400_000).toISOString(),
       priceCeilingCents: 350000,
     };
   }
