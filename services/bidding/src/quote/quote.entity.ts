@@ -11,9 +11,9 @@ export enum QuoteStatus {
 // Nome explicito da constraint (em vez do hash que o TypeORM geraria, tipo
 // "UQ_c4ffd11b8d6667b347e41f5e1db"): QuoteRepository.submit precisa comparar
 // o nome da constraint violada para nao confundir esta violacao com a de
-// outra constraint unique que venha a existir na tabela (ex.: idempotency_key
-// da Task 4). Um nome explicito sobrevive a mudanca de coluna e e legivel em
-// log de producao; o hash gerado automaticamente nao.
+// outra constraint unique que venha a existir na tabela (ex.: uma futura
+// coluna idempotency_key). Um nome explicito sobrevive a mudanca de coluna
+// e e legivel em log de producao; o hash gerado automaticamente nao.
 export const QUOTE_LOAD_CARRIER_UNIQUE_CONSTRAINT = "UQ_quotes_load_id_carrier_id";
 
 // Unicidade de (loadId, carrierId) garantida por constraint do Postgres, nao

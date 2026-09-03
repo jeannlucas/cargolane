@@ -26,8 +26,8 @@ function isGrpcLikeError(error: unknown): error is GrpcLikeError {
 }
 
 // Mapa deliberadamente pequeno: so os codigos que os servicos gRPC do
-// projeto realmente emitem (catalog hoje; bidding a partir da Task 6, que
-// reusa este mesmo filtro). Qualquer codigo fora do mapa cai no default
+// projeto realmente emitem (catalog e bidding, que reusam este mesmo
+// filtro). Qualquer codigo fora do mapa cai no default
 // (INTERNAL_SERVER_ERROR), que e a postura conservadora certa para um codigo
 // gRPC que este gateway ainda nao sabe classificar.
 const GRPC_TO_HTTP_STATUS: Partial<Record<number, HttpStatus>> = {
@@ -39,9 +39,9 @@ const GRPC_TO_HTTP_STATUS: Partial<Record<number, HttpStatus>> = {
 
 // Filtro de excecao generico: traduz o codigo gRPC de um servico downstream
 // para o status HTTP equivalente. Generico e nao acoplado a "loads" de
-// proposito — a Task 6 (rotas REST do bidding) reusa exatamente este filtro
-// para os proprios erros do bidding (ex.: ALREADY_EXISTS de uma cotacao
-// duplicada), sem precisar duplicar nem estender esta classe.
+// proposito — as rotas REST do bidding reusam exatamente este filtro para os
+// proprios erros do bidding (ex.: ALREADY_EXISTS de uma cotacao duplicada),
+// sem precisar duplicar nem estender esta classe.
 @Catch()
 export class GrpcErrorFilter implements ExceptionFilter {
   private readonly logger = new Logger(GrpcErrorFilter.name);

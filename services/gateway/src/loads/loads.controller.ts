@@ -106,10 +106,9 @@ export class LoadsController implements OnModuleInit {
   // type uuid") sem `instanceof` nenhum dos erros de dominio do catalog —
   // esse erro atravessa o controller gRPC do catalog sem virar
   // NOT_FOUND/INVALID_ARGUMENT, chega como UNKNOWN, e o filtro deste gateway
-  // o classificaria como 500. Este e o achado do Marco 1 que esta rota
-  // fecha: tres classes distintas de erro (id malformado, id bem formado mas
-  // inexistente, e um erro de fato inesperado) nao podem colapsar todas em
-  // "500 generico".
+  // o classificaria como 500. O ParseUUIDPipe garante que tres classes
+  // distintas de erro (id malformado, id bem formado mas inexistente, e um
+  // erro de fato inesperado) nao colapsam todas em "500 generico".
   @Get(":id")
   async getById(@Param("id", new ParseUUIDPipe()) id: string): Promise<LoadResponse> {
     const load = await firstValueFrom(this.catalog.GetLoad({ id }));

@@ -80,8 +80,8 @@ export class QuoteService {
   // sozinho deixa NaN e Infinity passarem direto para o INSERT (onde o
   // Postgres rejeita, mas com erro cru de coluna `int`, nao com invariante de
   // dominio). Por isso cada campo numerico e checado com `Number.isFinite`
-  // antes de qualquer comparacao de valor (mesmo achado Critical da Task 1
-  // deste plano, aplicado aqui ao bidding).
+  // antes de qualquer comparacao de valor (mesmo cuidado que o catalog toma
+  // ao validar `weightKg`/`priceCeilingCents`, aplicado aqui ao bidding).
   private validate(input: SubmitQuoteInput): void {
     if (input.loadId.trim() === "") {
       throw new InvalidQuoteError("loadId", "must not be blank");

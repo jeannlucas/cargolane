@@ -16,10 +16,10 @@ import { QuoteService } from "./quote/quote.service";
           type: "postgres",
           url: process.env.DATABASE_URL,
           entities: [Quote],
-          // Divida deliberada com prazo, nao decisao de arquitetura: sem
-          // migrations ate o Plano 4, o schema nasce do synchronize, igual ao
-          // catalog. Nunca ligado em producao: synchronize:true em Postgres
-          // altera/derruba coluna sem avisar.
+          // Divida deliberada com prazo, nao decisao de arquitetura: ainda
+          // nao existem migrations, entao o schema nasce do synchronize,
+          // igual ao catalog. Nunca ligado em producao: synchronize:true em
+          // Postgres altera/derruba coluna sem avisar.
           synchronize: process.env.NODE_ENV !== "production",
         });
         await dataSource.initialize();

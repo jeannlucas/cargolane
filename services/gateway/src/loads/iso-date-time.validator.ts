@@ -3,8 +3,7 @@ import { registerDecorator, ValidationArguments, ValidationOptions } from "class
 // Formato ISO 8601 completo (data + hora + offset). "pickupWindowEnd"
 // representa um instante especifico (o fim de uma janela de coleta), entao
 // exige-se hora e offset explicitos ("Z" ou "+HH:mm"/"-HH:mm"), no mesmo
-// formato ja usado em toda a base (ex.: "2026-09-30T12:00:00Z" nos fixtures
-// do catalog).
+// formato ja usado em toda a base (ex.: "2026-12-31T12:00:00Z").
 const ISO_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
 
 function isLeapYear(year: number): boolean {
@@ -20,9 +19,9 @@ function daysInMonth(year: number, month: number): number {
 // correspondem a um instante real do calendario.
 //
 // `new Date("2026-02-30T12:00:00Z")` nao lanca erro nem produz um Date
-// invalido: o JS rola em silencio para 1 de marco (achado conhecido deste
-// projeto). O regex sozinho tambem nao pega esse caso — "2026-02-30" bate no
-// formato normalmente, so nao existe no calendario.
+// invalido: o JS rola em silencio para 1 de marco. O regex sozinho tambem
+// nao pega esse caso — "2026-02-30" bate no formato normalmente, so nao
+// existe no calendario.
 //
 // Por isso a validacao nao passa pelo construtor `Date` em nenhum momento:
 // os componentes (ano/mes/dia/hora/min/seg) sao extraidos do texto por regex

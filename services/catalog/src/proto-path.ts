@@ -11,8 +11,8 @@ import * as path from "node:path";
 // services/catalog/src (fonte). Sob o build compilado, __dirname aponta para
 // services/catalog/dist (veja tsconfig.build.json: rootDir "src" vira "dist"
 // direto, sem o "dist/src" que "rootDir: '.'" produzia). Contar "3 niveis
-// acima" funcionava para o primeiro caso e quebrava em producao (achado C-1:
-// o dist buscava cargolane/services/proto, que nao existe). Os dois pontos de
+// acima" funcionava para o primeiro caso e quebrava em producao: o dist
+// buscava cargolane/services/proto, que nao existe. Os dois pontos de
 // partida ficam exatamente um nivel dentro de services/catalog, entao subir a
 // arvore a partir de __dirname ate achar um "proto/catalog.proto" funciona
 // para ambos sem depender de qual dos dois esta rodando.

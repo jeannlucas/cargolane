@@ -11,10 +11,10 @@ import * as path from "node:path";
 // services/gateway/src (fonte). Sob o build compilado, __dirname aponta para
 // services/gateway/dist (veja tsconfig.build.json: rootDir "src" vira "dist"
 // direto, sem o "dist/src" que "rootDir: '.'" produzia). Contar "3 niveis
-// acima" funcionava para um dos dois casos e quebrava no outro (achado C-1 do
-// catalog: o dist buscava cargolane/services/proto, que nao existe). Os dois
-// pontos de partida ficam exatamente um nivel dentro de services/gateway,
-// entao subir a arvore a partir de __dirname ate achar um
+// acima" funcionava para um dos dois casos e quebrava no outro: o dist
+// buscava cargolane/services/proto, que nao existe (mesmo problema do
+// catalog). Os dois pontos de partida ficam exatamente um nivel dentro de
+// services/gateway, entao subir a arvore a partir de __dirname ate achar um
 // "proto/catalog.proto" funciona para ambos sem depender de qual dos dois
 // esta rodando.
 function findProto(fileName: string, startDir: string): string {

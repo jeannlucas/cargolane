@@ -15,16 +15,16 @@
 //   CEGO para qualquer serializacao que aconteca depois do disparo: dentro
 //   do proprio AcceptLoad no bidding, no pool de conexao do bidding, na ida
 //   ao catalog, no pool do catalog. Um mutex colocado so dentro do bidding
-//   (ver commit desta rodada de correcao) deixa o contador do gateway em 3
-//   mesmo com o bidding processando uma aceitacao de cada vez.
+//   deixaria o contador do gateway em 3 mesmo com o bidding processando uma
+//   aceitacao de cada vez — o contador do gateway sozinho nao pegaria isso.
 // - Este contador, do BIDDING, envolve o corpo inteiro de accept() — o
 //   trabalho de fato, do lado de quem decide a disputa. Ele so mostra pico
 //   3 se as tres execucoes de accept() genuinamente se sobrepuserem por
-//   dentro. Um mutex que serialize o metodo inteiro (a sabotagem desta
-//   rodada) faz este contador cair para 1, mesmo que o contador do gateway
-//   continue em 3 — e exatamente por isso os dois precisam existir: o do
-//   gateway prova que o cliente nao serializou o disparo, este prova que o
-//   bidding nao serializou o processamento.
+//   dentro. Um mutex que serialize o metodo inteiro faz este contador cair
+//   para 1, mesmo que o contador do gateway continue em 3 — e exatamente
+//   por isso os dois precisam existir: o do gateway prova que o cliente nao
+//   serializou o disparo, este prova que o bidding nao serializou o
+//   processamento.
 //
 // Limite conhecido, documentado em vez de escondido: como o incremento
 // acontece no INICIO do corpo rastreado, uma lentidao que aconteca DEPOIS

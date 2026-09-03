@@ -18,9 +18,9 @@ export class LoadExpirationJob {
 
   // try/catch obrigatorio aqui: uma promise rejeitada dentro de um handler de
   // @Interval vira unhandledRejection, e a partir do Node 22 isso encerra o
-  // processo (achado I-3). Uma indisponibilidade momentanea do Postgres
-  // derrubaria o servico inteiro, inclusive ReserveLoad, por causa de um job
-  // secundario. Um tick que falha loga e aguarda o proximo, nunca propaga.
+  // processo. Uma indisponibilidade momentanea do Postgres derrubaria o
+  // servico inteiro, inclusive ReserveLoad, por causa de um job secundario.
+  // Um tick que falha loga e aguarda o proximo, nunca propaga.
   @Interval(60_000)
   async run(): Promise<void> {
     try {
