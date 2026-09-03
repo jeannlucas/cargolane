@@ -1,5 +1,5 @@
 import {
-  ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus,
+  ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger,
 } from "@nestjs/common";
 import { status as GrpcStatus } from "@grpc/grpc-js";
 import type { Response } from "express";
@@ -44,6 +44,8 @@ const GRPC_TO_HTTP_STATUS: Partial<Record<number, HttpStatus>> = {
 // duplicada), sem precisar duplicar nem estender esta classe.
 @Catch()
 export class GrpcErrorFilter implements ExceptionFilter {
+  private readonly logger = new Logger(GrpcErrorFilter.name);
+
   catch(exception: unknown, host: ArgumentsHost): void {
     const response = host.switchToHttp().getResponse<Response>();
 
@@ -56,9 +58,33 @@ export class GrpcErrorFilter implements ExceptionFilter {
     }
 
     if (isGrpcLikeError(exception)) {
-      const httpStatus = GRPC_TO_HTTP_STATUS[exception.code] ?? HttpStatus.INTERNAL_SERVER_ERROR;
-      response.status(httpStatus).json({
-        statusCode: httpStatus,
+      const mappedStatus = GRPC_TO_HTTP_STATUS[exception.code];
+
+      // `exception.details`/`.message` so e seguro devolver ao cliente HTTP
+      // quando o codigo esta no mapa (INVALID_ARGUMENT/NOT_FOUND/
+      // ALREADY_EXISTS/FAILED_PRECONDITION): esses sao erros de dominio,
+      // com mensagem pensada para quem chamou (ex.: "load x not found").
+      // Um codigo fora do mapa (UNAVAILABLE, INTERNAL, DEADLINE_EXCEEDED,
+      // ...) normalmente carrega detalhe de infraestrutura do driver gRPC —
+      // endereco e porta do servico downstream, motivo de conexao recusada
+      // — que nao e problema do cliente HTTP e nao pode vazar para fora do
+      // processo so porque o catalog caiu ou a rede particionou. Nesse
+      // caso o corpo da resposta e sempre generico; o detalhe real vai para
+      // o log do servidor, que e onde ele serve para alguma coisa.
+      if (mappedStatus === undefined) {
+        this.logger.error(
+          `unmapped grpc error code=${exception.code}: ` +
+            `${exception.details ?? exception.message ?? "no message"}`,
+        );
+        response.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: "internal server error",
+        });
+        return;
+      }
+
+      response.status(mappedStatus).json({
+        statusCode: mappedStatus,
         message: exception.details || exception.message || "unexpected upstream error",
       });
       return;

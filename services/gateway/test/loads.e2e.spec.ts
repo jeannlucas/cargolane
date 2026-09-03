@@ -20,6 +20,16 @@ function validPayload() {
 // connection refused. Usada (em vez de uma porta efemera "provavelmente
 // livre") para garantir, sem nenhuma corrida, que nada esta ouvindo do outro
 // lado.
+//
+// Pressuposto de plataforma: "porta < 1024 exige root para escutar" e
+// convencao Unix (macOS/Linux, onde catalog/bidding/gateway rodam hoje), nao
+// garantia do protocolo TCP em si — no Windows um processo sem privilegio
+// pode escutar na porta 1 normalmente. Nao trocar por uma porta alta
+// aleatoria "para ser mais portavel": isso reintroduziria a corrida de porta
+// efemera (algo pode escutar la antes do teste rodar) e, pior, se algo
+// responder do outro lado os testes de validationOnlyApp voltam a poder
+// passar sem o ValidationPipe fazer nada — exatamente o mascaramento que a
+// sabotagem desta task descobriu.
 const UNREACHABLE_CATALOG_URL = "127.0.0.1:1";
 
 describe("Gateway REST /loads", () => {
@@ -126,6 +136,25 @@ describe("Gateway REST /loads", () => {
     const res = await request(validationOnlyApp.getHttpServer()).get("/loads/not-a-valid-id");
 
     expect(res.status).toBe(400);
+  });
+
+  // Prova o fechamento do vazamento de infraestrutura no branch 500 do
+  // filtro (grpc-error.filter.ts): um id bem formado passa pelo
+  // ParseUUIDPipe e chega ao controller, que tenta discar GetLoad para
+  // "127.0.0.1:1" (validationOnlyApp) — ninguem escuta la, entao o
+  // @grpc/grpc-js rejeita com UNAVAILABLE, codigo fora do mapa do filtro. O
+  // corpo da resposta precisa ser generico; o endereco/porta real do
+  // catalog nunca pode aparecer nele, so no log do servidor.
+  it("erro gRPC nao mapeado (catalog inalcancavel) devolve 500 generico, sem vazar endereco/porta interna", async () => {
+    const res = await request(validationOnlyApp.getHttpServer()).get(`/loads/${randomUUID()}`);
+
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ statusCode: 500, message: "internal server error" });
+
+    const rawBody = JSON.stringify(res.body);
+    expect(rawBody).not.toContain("ECONNREFUSED");
+    expect(rawBody).not.toContain("127.0.0.1");
+    expect(rawBody).not.toContain(UNREACHABLE_CATALOG_URL);
   });
 
   it("GET /loads/:id inexistente devolve 404", async () => {
