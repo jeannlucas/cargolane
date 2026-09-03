@@ -1,0 +1,168 @@
+import { randomUUID } from "node:crypto";
+import { INestApplication } from "@nestjs/common";
+import request from "supertest";
+import { createApp } from "../src/create-app";
+import { startCatalogForGatewayTests, TestCatalogServer } from "./helpers/catalog";
+
+function validPayload() {
+  return {
+    shipperId: "shipper-1",
+    origin: "Maringa/PR",
+    destination: "Curitiba/PR",
+    weightKg: 12000,
+    pickupWindowEnd: "2026-12-31T12:00:00Z",
+    priceCeilingCents: 350000,
+  };
+}
+
+// Porta 1 e privilegiada: um processo sem root nunca consegue escutar nela,
+// entao qualquer tentativa de discar para "127.0.0.1:1" falha na hora com
+// connection refused. Usada (em vez de uma porta efemera "provavelmente
+// livre") para garantir, sem nenhuma corrida, que nada esta ouvindo do outro
+// lado.
+const UNREACHABLE_CATALOG_URL = "127.0.0.1:1";
+
+describe("Gateway REST /loads", () => {
+  let catalog: TestCatalogServer;
+  let app: INestApplication;
+  let validationOnlyApp: INestApplication;
+
+  beforeAll(async () => {
+    // CATALOG_GRPC_URL precisa estar definido ANTES de createApp(): e lido
+    // dentro do useFactory do ClientsModule.registerAsync
+    // (services/gateway/src/app.module.ts), chamado quando o Nest resolve o
+    // provider no bootstrap — que acontece dentro deste createApp().
+    catalog = await startCatalogForGatewayTests();
+    app = await createApp();
+    await app.init();
+
+    // Segunda instancia da app, apontando para um endereco gRPC onde nada
+    // esta escutando. Usada nos testes de validacao de forma (DTO/
+    // ValidationPipe), para provar que a rejeicao 400 acontece no gateway,
+    // sem depender do catalog estar no ar.
+    //
+    // Isso nao e paranoia: a primeira versao destes testes rodava contra o
+    // catalog real e conferia so o status HTTP (e, no caso do peso negativo,
+    // a contagem de linhas na tabela). Isso nao prova o que promete —
+    // "shipperId" vazio e "weightKg" negativo TAMBEM sao invariantes que o
+    // catalog rejeita por conta propria (ver load.service.ts:validate),
+    // devolvendo o mesmo INVALID_ARGUMENT->400 pelo mesmo filtro. Um teste
+    // assim passa igual mesmo se o ValidationPipe do gateway for removido
+    // por inteiro — o que uma sabotagem real expos: ao tirar o
+    // ValidationPipe, so o teste de "campo desconhecido" caiu (porque so
+    // forbidNonWhitelisted nao tem equivalente no catalog); os demais
+    // continuaram verdes escondidos atras da validacao do catalog. Rodar
+    // estes quatro testes contra um catalog inalcancavel fecha essa lacuna:
+    // um 400 aqui so pode ter vindo do gateway, porque nao ha ninguem do
+    // outro lado para gerar qualquer resposta.
+    const previousCatalogUrl = process.env.CATALOG_GRPC_URL;
+    process.env.CATALOG_GRPC_URL = UNREACHABLE_CATALOG_URL;
+    validationOnlyApp = await createApp();
+    await validationOnlyApp.init();
+    process.env.CATALOG_GRPC_URL = previousCatalogUrl;
+  }, 60_000);
+
+  afterAll(async () => {
+    await app.close();
+    await validationOnlyApp.close();
+    await catalog.stop();
+  });
+
+  it("POST /loads sem shipperId devolve 400 dizendo o campo, sem depender do catalog", async () => {
+    const res = await request(validationOnlyApp.getHttpServer())
+      .post("/loads")
+      .send({ ...validPayload(), shipperId: "" });
+
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(res.body)).toContain("shipperId");
+  });
+
+  it("POST /loads com weightKg negativo devolve 400 sem depender do catalog", async () => {
+    const res = await request(validationOnlyApp.getHttpServer())
+      .post("/loads")
+      .send({ ...validPayload(), weightKg: -100 });
+
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(res.body)).toContain("weightKg");
+  });
+
+  it("POST /loads com campo desconhecido no corpo devolve 400, sem depender do catalog", async () => {
+    const res = await request(validationOnlyApp.getHttpServer())
+      .post("/loads")
+      .send({ ...validPayload(), unexpectedField: "nope" });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /loads com pickupWindowEnd em data impossivel (rollover) devolve 400, sem depender do catalog", async () => {
+    // "2027-02-30" nao existe: 2027 nao e bissexto e fevereiro tem no maximo
+    // 28 dias. `new Date("2027-02-30T12:00:00Z")` nao lanca erro, so rola em
+    // silencio para 2 de marco de 2027 — o achado que este teste fecha.
+    //
+    // Ano escolhido de proposito (2027, nao 2026): o rollover de
+    // "2026-02-30" cai em 2 de marco de 2026, que already passou em relacao
+    // a data real de hoje — o catalog rejeitaria essa data de qualquer jeito
+    // pela invariante "pickupWindowEnd deve ser no futuro"
+    // (load.service.ts), mascarando um IsRealIsoDateTime quebrado. Com 2027
+    // o rollover cai no futuro, entao o catalog (se chegasse a ser chamado)
+    // aceitaria essa data sem reclamar — o 400 so pode vir da checagem de
+    // calendario do proprio gateway (src/loads/iso-date-time.validator.ts).
+    // Rodar contra validationOnlyApp reforca a mesma garantia por um segundo
+    // angulo: nem chega a discar para o catalog.
+    const res = await request(validationOnlyApp.getHttpServer())
+      .post("/loads")
+      .send({ ...validPayload(), pickupWindowEnd: "2027-02-30T12:00:00Z" });
+
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(res.body)).toContain("pickupWindowEnd");
+  });
+
+  it("GET /loads/:id malformado devolve 400, nao 500, sem depender do catalog", async () => {
+    // Fecha o achado do Marco 1: id malformado, id bem formado mas
+    // inexistente, e um erro de fato inesperado sao tres classes distintas
+    // de erro que nao podem colapsar todas em "500 generico". Rodado contra
+    // validationOnlyApp: ParseUUIDPipe rejeita antes de qualquer chamada ao
+    // catalog, entao o 400 nao pode ter vindo de la.
+    const res = await request(validationOnlyApp.getHttpServer()).get("/loads/not-a-valid-id");
+
+    expect(res.status).toBe(400);
+  });
+
+  it("GET /loads/:id inexistente devolve 404", async () => {
+    const res = await request(app.getHttpServer()).get(`/loads/${randomUUID()}`);
+
+    expect(res.status).toBe(404);
+  });
+
+  it("POST /loads valido devolve 201 com o corpo da carga", async () => {
+    const res = await request(app.getHttpServer()).post("/loads").send(validPayload());
+
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({
+      shipperId: "shipper-1",
+      origin: "Maringa/PR",
+      destination: "Curitiba/PR",
+      weightKg: 12000,
+      priceCeilingCents: 350000,
+      status: "open",
+      carrierId: null,
+    });
+    expect(res.body.id).toEqual(expect.any(String));
+  });
+
+  // Fecha a lacuna de cobertura do filtro de erro gRPC (grpc-error.filter.ts)
+  // para o codigo INVALID_ARGUMENT: "origin igual a destino" e invariante de
+  // dominio do catalog (nao validacao de forma do gateway), entao o 400 so
+  // pode vir da traducao INVALID_ARGUMENT->400 do filtro, nunca do
+  // ValidationPipe. Sabotar essa linha do filtro derruba este teste sem
+  // afetar os testes de ValidationPipe acima. Precisa do catalog real (e por
+  // isso roda em `app`, nao em `validationOnlyApp`): so o catalog decide essa
+  // invariante.
+  it("POST /loads com origin igual a destino devolve 400 via filtro (INVALID_ARGUMENT do catalog)", async () => {
+    const res = await request(app.getHttpServer())
+      .post("/loads")
+      .send({ ...validPayload(), origin: "Maringa/PR", destination: "Maringa/PR" });
+
+    expect(res.status).toBe(400);
+  });
+});
