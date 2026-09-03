@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { trackBiddingAcceptInFlight } from "./accept-in-flight-tracker";
 import { CatalogClient } from "./catalog.client";
-import { NoQuoteError, InvalidQuoteError } from "./quote.errors";
+import { NoQuoteError, InvalidQuoteError, QuoteAlreadyDecidedError } from "./quote.errors";
 import { Quote, QuoteStatus } from "./quote.entity";
 import { QuoteRepository, SubmitQuoteInput } from "./quote.repository";
 
@@ -55,6 +55,16 @@ export class QuoteService {
     return trackBiddingAcceptInFlight(async () => {
       const quote = await this.quotes.findSubmittedQuote(loadId, carrierId);
       if (!quote) {
+        // Sem cotacao SUBMITTED: ou a transportadora nunca cotou esta carga,
+        // ou ela cotou e a corrida ja foi decidida (a cotacao dela virou
+        // won ou lost antes deste accept rodar — o caso sequencial comum na
+        // pratica, uma transportadora aceitando depois que outra ja venceu).
+        // Os dois casos nao podem virar o mesmo erro: quem cotou e perdeu
+        // precisa saber que perdeu, nao ouvir que nunca cotou.
+        const existing = await this.quotes.findByLoadAndCarrier(loadId, carrierId);
+        if (existing) {
+          throw new QuoteAlreadyDecidedError(loadId, carrierId, existing.status);
+        }
         throw new NoQuoteError(loadId, carrierId);
       }
 

@@ -3,7 +3,7 @@ import { RpcException } from "@nestjs/microservices";
 import { DataSource } from "typeorm";
 import { CatalogClient } from "../src/quote/catalog.client";
 import { QuoteController } from "../src/quote/quote.controller";
-import { NoQuoteError } from "../src/quote/quote.errors";
+import { NoQuoteError, QuoteAlreadyDecidedError } from "../src/quote/quote.errors";
 import { Quote, QuoteStatus } from "../src/quote/quote.entity";
 import { QuoteRepository } from "../src/quote/quote.repository";
 import { QuoteService } from "../src/quote/quote.service";
@@ -191,6 +191,40 @@ describe("QuoteService.accept orquestra AcceptLoad contra o catalog", () => {
     const load = await catalog.getLoad({ id: loadId });
     expect(load.status).toBe("reserved");
     expect(load.carrier_id).toBe(winnerQuote?.carrierId);
+  });
+
+  // Caminho sequencial, distinto do teste de corrida simultanea acima: aqui
+  // a vencedora (ca) ja terminou de aceitar - a cotacao de cb ja esta lost
+  // no banco - antes de cb tentar aceitar. findSubmittedQuote nao acha a
+  // cotacao de cb (ela nao esta mais submitted), e sem a correcao do I-2 o
+  // codigo caia direto em NoQuoteError, dizendo a cb que ela nunca cotou -
+  // falso, cb cotou e perdeu. O teste prova que cb recebe uma mensagem que
+  // descreve o que de fato aconteceu (a carga ja foi decidida), nao a
+  // alegacao falsa de que ela nao tem cotacao.
+  it("aceitacao sequencial: quem perdeu recebe mensagem dizendo que a carga ja foi decidida, nao que nunca cotou", async () => {
+    const loadId = await publishOpenLoad();
+    await repo.submit({ loadId, carrierId: "ca", priceCents: 100000, etaHours: 24 });
+    await repo.submit({ loadId, carrierId: "cb", priceCents: 110000, etaHours: 22 });
+
+    const winnerResult = await service.accept(loadId, "ca", "k-a");
+    expect(winnerResult.winningQuote.status).toBe(QuoteStatus.WON);
+
+    const loserQuoteBefore = await repo.findByLoadAndCarrier(loadId, "cb");
+    expect(loserQuoteBefore?.status).toBe(QuoteStatus.LOST);
+
+    await expect(service.accept(loadId, "cb", "k-b"))
+      .rejects.toBeInstanceOf(QuoteAlreadyDecidedError);
+    await expect(service.accept(loadId, "cb", "k-b"))
+      .rejects.not.toBeInstanceOf(NoQuoteError);
+    await expect(service.accept(loadId, "cb", "k-b"))
+      .rejects.toMatchObject({
+        message: expect.stringContaining("was already decided"),
+      });
+
+    // No limite publico (o controller gRPC), o mesmo cenario ainda vira
+    // FAILED_PRECONDITION — a correcao troca a mensagem, nao o codigo.
+    await expect(rpcCodeOf(acceptViaController(loadId, "cb", "k-c")))
+      .resolves.toBe(status.FAILED_PRECONDITION);
   });
 
   it("quando o catalog recusa, nenhuma cotacao muda de status", async () => {

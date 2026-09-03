@@ -2,7 +2,9 @@ import { status } from "@grpc/grpc-js";
 import { Controller } from "@nestjs/common";
 import { GrpcMethod, RpcException } from "@nestjs/microservices";
 import { CatalogRpcError } from "./catalog.client";
-import { DuplicateQuoteError, InvalidQuoteError, NoQuoteError } from "./quote.errors";
+import {
+  DuplicateQuoteError, InvalidQuoteError, NoQuoteError, QuoteAlreadyDecidedError,
+} from "./quote.errors";
 import { QuoteMessage, toQuoteMessage } from "./quote.mapper";
 import { QuoteService } from "./quote.service";
 
@@ -77,6 +79,13 @@ export class QuoteController {
       };
     } catch (e) {
       if (e instanceof NoQuoteError) {
+        throw new RpcException({ code: status.FAILED_PRECONDITION, message: e.message });
+      }
+      if (e instanceof QuoteAlreadyDecidedError) {
+        // Mesmo codigo de NoQuoteError (precondicao: o pedido em si e
+        // valido, falta o estado previo), mas com uma mensagem que descreve
+        // o que de fato aconteceu — a transportadora cotou, so a carga ja
+        // foi decidida — em vez de negar que ela tenha cotado.
         throw new RpcException({ code: status.FAILED_PRECONDITION, message: e.message });
       }
       if (e instanceof CatalogRpcError) {

@@ -12,10 +12,11 @@ export interface SubmitQuoteInput {
 // Codigo do Postgres para violacao de constraint unique/primary key. Sozinho
 // nao basta: identifica a familia do erro ("alguma" unique foi violada), nao
 // qual. A tabela `quotes` tem hoje uma unica constraint unique alem da PK,
-// entao o codigo sozinho "acerta" por coincidencia — mas a Task 4 adiciona
-// idempotency_key ao AcceptLoad, e no dia em que existir uma segunda
-// constraint unique nesta tabela, checar so o codigo reportaria a violacao
-// dela como DuplicateQuoteError: uma mentira para o cliente.
+// entao o codigo sozinho "acerta" por coincidencia — mas o dia em que existir
+// uma segunda constraint unique nesta tabela (por exemplo, se idempotency_key
+// vier a virar coluna persistida em vez de so parametro de AcceptLoad),
+// checar so o codigo reportaria a violacao dela como DuplicateQuoteError:
+// uma mentira para o cliente.
 const UNIQUE_VIOLATION = "23505";
 
 interface PgUniqueViolationError {
@@ -58,11 +59,21 @@ export class QuoteRepository {
     });
   }
 
+  // Sem filtro de status: usado por QuoteService.accept so depois que
+  // findSubmittedQuote nao encontrou nada, para distinguir "esta
+  // transportadora nunca cotou esta carga" (NoQuoteError) de "ela cotou, mas
+  // a cotacao ja foi decidida — won ou lost" (QuoteAlreadyDecidedError). A
+  // constraint @Unique(["loadId", "carrierId"]) garante no maximo uma linha.
+  async findByLoadAndCarrier(loadId: string, carrierId: string): Promise<Quote | null> {
+    return this.ds.getRepository(Quote).findOneBy({ loadId, carrierId });
+  }
+
   // Isolado num metodo proprio (em vez de inline em QuoteService.accept)
-  // porque o Plano 3 troca esta chamada direta por um handler do evento
-  // LoadReserved: a regra de "quem ganhou vira won, o resto vira lost" nao
-  // pode ficar espalhada entre o orquestrador de hoje e o handler de evento
-  // de amanha. So chamado depois que o catalog decidiu a disputa (nunca
+  // porque uma versao futura troca esta chamada direta por um handler do
+  // evento LoadReserved (quando o catalog passar a publicar esse evento): a
+  // regra de "quem ganhou vira won, o resto vira lost" nao pode ficar
+  // espalhada entre o orquestrador de hoje e o handler de evento de amanha.
+  // So chamado depois que o catalog decidiu a disputa (nunca
   // antes) — este metodo em si nao decide nada, so registra uma decisao ja
   // tomada.
   //
